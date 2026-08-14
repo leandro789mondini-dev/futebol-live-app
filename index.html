@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#0b1220" />
+  <meta name="description" content="Painel de análise de futebol ao vivo, gols, escanteios, ambas marcam, odds e múltiplas." />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="estilos.css" />
+  <title>Futebol Live App</title>
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <div class="eyebrow">PAINEL AO VIVO</div>
+      <h1>⚽ Futebol Live</h1>
+    </div>
+    <button id="refreshBtn" class="ghost">Atualizar</button>
+  </header>
+
+  <main class="container">
+    <section class="hero card">
+      <div>
+        <span class="badge live">● AO VIVO</span>
+        <h2>Análise rápida para gols, escanteios, BTTS e resultado</h2>
+        <p class="muted">O app calcula um índice de oportunidade com base nas estatísticas informadas. Use como apoio de análise, não como garantia de resultado.</p>
+      </div>
+      <div class="hero-score">
+        <span>Modo</span>
+        <strong id="modeLabel">DEMO</strong>
+      </div>
+    </section>
+
+    <section class="grid two">
+      <div class="card">
+        <h3>Dados da partida</h3>
+        <div class="form-grid">
+          <label>Mandante<input id="homeTeam" value="Time da Casa" /></label>
+          <label>Visitante<input id="awayTeam" value="Visitante" /></label>
+          <label>Minuto<input id="minute" type="number" min="1" max="120" value="62" /></label>
+          <label>Placar mandante<input id="homeGoals" type="number" min="0" value="1" /></label>
+          <label>Placar visitante<input id="awayGoals" type="number" min="0" value="1" /></label>
+          <label>Finalizações mandante<input id="homeShots" type="number" min="0" value="11" /></label>
+          <label>Finalizações visitante<input id="awayShots" type="number" min="0" value="8" /></label>
+          <label>No alvo mandante<input id="homeSot" type="number" min="0" value="5" /></label>
+          <label>No alvo visitante<input id="awaySot" type="number" min="0" value="3" /></label>
+          <label>Escanteios mandante<input id="homeCorners" type="number" min="0" value="5" /></label>
+          <label>Escanteios visitante<input id="awayCorners" type="number" min="0" value="3" /></label>
+          <label>Ataques perigosos mandante<input id="homeDanger" type="number" min="0" value="44" /></label>
+          <label>Ataques perigosos visitante<input id="awayDanger" type="number" min="0" value="31" /></label>
+        </div>
+        <button id="analyzeBtn" class="primary full">Analisar partida</button>
+      </div>
+
+      <div class="card">
+        <h3>Odds</h3>
+        <div class="form-grid">
+          <label>Casa<input id="oddHome" type="number" step="0.01" value="2.10" /></label>
+          <label>Empate<input id="oddDraw" type="number" step="0.01" value="3.20" /></label>
+          <label>Visitante<input id="oddAway" type="number" step="0.01" value="3.40" /></label>
+          <label>Mais 2.5 gols<input id="oddOver25" type="number" step="0.01" value="1.95" /></label>
+          <label>Ambas marcam<input id="oddBtts" type="number" step="0.01" value="1.78" /></label>
+          <label>Mais 8.5 escanteios<input id="oddCorners" type="number" step="0.01" value="1.85" /></label>
+        </div>
+        <div class="note">Para odds realmente ao vivo, conecte uma API no botão “Configurações”. O pacote inicia em modo DEMO para funcionar imediatamente.</div>
+        <button id="settingsBtn" class="ghost full">Configurações da API</button>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-title">
+        <h3>Oportunidades</h3>
+        <span class="muted" id="lastUpdate">—</span>
+      </div>
+      <div id="signals" class="signal-grid"></div>
+    </section>
+
+    <section class="grid two">
+      <div class="card">
+        <h3>Leitura da partida</h3>
+        <div id="analysisText" class="analysis-box">Preencha os dados e toque em “Analisar partida”.</div>
+      </div>
+
+      <div class="card">
+        <h3>Construtor de múltipla</h3>
+        <div id="builderMarkets" class="builder-markets"></div>
+        <div class="ticket">
+          <div><span>Seleções</span><strong id="ticketCount">0</strong></div>
+          <div><span>Odd total</span><strong id="ticketOdd">1.00</strong></div>
+          <div><span>Retorno em R$ 10</span><strong id="ticketReturn">R$ 10,00</strong></div>
+        </div>
+        <button id="clearTicket" class="ghost full">Limpar bilhete</button>
+      </div>
+    </section>
+
+    <section class="card disclaimer">
+      <h3>Gestão de risco</h3>
+      <p>Probabilidades e índices são estimativas. Futebol é imprevisível e nenhuma entrada é garantida. Defina limite de banca e evite aumentar a aposta para recuperar perdas.</p>
+    </section>
+  </main>
+
+  <dialog id="settingsDialog">
+    <form method="dialog" class="dialog-card">
+      <h3>Configuração da API</h3>
+      <p class="muted">O front-end não deve guardar chaves secretas. Informe apenas uma URL pública sua (proxy/backend) que devolva JSON de partidas.</p>
+      <label>URL do endpoint
+        <input id="apiUrl" placeholder="https://seu-backend.com/api/live" />
+      </label>
+      <div class="dialog-actions">
+        <button value="cancel" class="ghost">Cancelar</button>
+        <button id="saveSettings" value="default" class="primary">Salvar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
