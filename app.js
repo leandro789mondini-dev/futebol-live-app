@@ -23,19 +23,21 @@ const ids = [
 let ticket = [];
 let jogosDisponiveis = [];
 let jogoSelecionado = null;
-
 let jogosPreLive = [];
 let modoAtual = "live";
 
 const analiseCache = new Map();
+const statsCache = new Map();
 
 let buscandoJogos = false;
 let buscandoPreLive = false;
+
 let ultimaAtualizacaoJogos = 0;
 let ultimaAtualizacaoPreLive = 0;
 
-const MIN_INTERVAL_LIVE = 30000;
-const MIN_INTERVAL_PRELIVE = 5 * 60 * 1000;
+const MIN_INTERVAL_LIVE = 5 * 60 * 1000;
+const MIN_INTERVAL_PRELIVE = 10 * 60 * 1000;
+const STATS_CACHE_MS = 60 * 1000;
 
 /* =====================================================
    UTILIDADES
@@ -47,10 +49,7 @@ function n(id) {
 
 function setInput(id, value) {
   const el = $(id);
-
-  if (el) {
-    el.value = value ?? 0;
-  }
+  if (el) el.value = value ?? 0;
 }
 
 function clamp(v, min = 0, max = 100) {
@@ -65,13 +64,10 @@ function pct(v) {
 }
 
 function brl(v) {
-  return Number(v || 0).toLocaleString(
-    "pt-BR",
-    {
-      style: "currency",
-      currency: "BRL"
-    }
-  );
+  return Number(v || 0).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL"
+  });
 }
 
 function escapeHtml(texto) {
@@ -85,18 +81,163 @@ function escapeHtml(texto) {
 
 function mensagemErroHttp(status) {
   if (status === 429) {
-    return "Limite de consultas da API atingido. Aguarde a cota liberar ou tente novamente mais tarde.";
+    return "Limite diário da API atingido.";
   }
 
   if (status === 401 || status === 403) {
-    return "A API recusou a autenticação. Verifique a chave da API.";
+    return "Chave da API recusada.";
   }
 
   if (status === 404) {
-    return "Dados não encontrados para esta partida.";
+    return "Dados não encontrados.";
+  }
+
+  if (status === 400) {
+    return "A API recusou os parâmetros enviados.";
   }
 
   return `Erro HTTP ${status}`;
+}
+
+/* =====================================================
+   STATUS DA API
+===================================================== */
+
+function criarStatusApi() {
+  if ($("apiStatusBox")) return;
+
+  const box = document.createElement("div");
+
+  box.id = "apiStatusBox";
+
+  box.style.cssText = `
+    max-width:1100px;
+    margin:12px auto;
+    padding:12px 15px;
+    background:#0d1b2d;
+    border:1px solid #29415f;
+    border-radius:15px;
+    color:#a9bad0;
+    font-size:14px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+  `;
+
+  box.innerHTML = `
+    <div>
+      <b id="apiStatusText">
+        ⚪ API aguardando
+      </b>
+
+      <div
+        id="apiStatusDetail"
+        style="
+          margin-top:3px;
+          font-size:12px;
+          color:#8093aa;
+        "
+      >
+        Aguardando primeira atualização.
+      </div>
+    </div>
+
+    <div
+      id="apiQuotaText"
+      style="
+        font-size:12px;
+        text-align:right;
+        color:#8093aa;
+      "
+    ></div>
+  `;
+
+  const main =
+    document.querySelector("main") ||
+    document.body;
+
+  const switcher =
+    $("modeSwitcher");
+
+  if (switcher?.parentNode) {
+    switcher.parentNode.insertBefore(
+      box,
+      switcher.nextSibling
+    );
+  } else {
+    main.prepend(box);
+  }
+}
+
+function atualizarStatusApi(
+  tipo = "ok",
+  detalhe = "",
+  api = null,
+  cache = false
+) {
+  criarStatusApi();
+
+  const titulo = $("apiStatusText");
+  const desc = $("apiStatusDetail");
+  const quota = $("apiQuotaText");
+
+  if (!titulo || !desc) return;
+
+  if (tipo === "ok") {
+    titulo.textContent =
+      cache
+        ? "🟡 API disponível • cache"
+        : "🟢 API disponível";
+
+    titulo.style.color =
+      cache ? "#f59e0b" : "#34d399";
+  }
+
+  if (tipo === "limite") {
+    titulo.textContent =
+      "🔴 Limite diário atingido";
+
+    titulo.style.color = "#fb7185";
+  }
+
+  if (tipo === "erro") {
+    titulo.textContent =
+      "🔴 Erro na API";
+
+    titulo.style.color = "#fb7185";
+  }
+
+  if (tipo === "carregando") {
+    titulo.textContent =
+      "🔵 Consultando API...";
+
+    titulo.style.color = "#60a5fa";
+  }
+
+  desc.textContent =
+    detalhe ||
+    "Sistema operacional.";
+
+  if (quota) {
+    const restante =
+      api?.restanteDia;
+
+    const limite =
+      api?.limiteDia;
+
+    if (
+      restante !== null &&
+      restante !== undefined &&
+      limite !== null &&
+      limite !== undefined
+    ) {
+      quota.textContent =
+        `API: ${restante}/${limite}`;
+    } else {
+      quota.textContent = "";
+    }
+  }
 }
 
 /* =====================================================
@@ -104,14 +245,29 @@ function mensagemErroHttp(status) {
 ===================================================== */
 
 function metrics() {
-  const minute = Math.max(1, n("minute"));
-  const totalGoals = n("homeGoals") + n("awayGoals");
-  const shots = n("homeShots") + n("awayShots");
-  const sot = n("homeSot") + n("awaySot");
-  const corners = n("homeCorners") + n("awayCorners");
+  const minute =
+    Math.max(1, n("minute"));
+
+  const totalGoals =
+    n("homeGoals") +
+    n("awayGoals");
+
+  const shots =
+    n("homeShots") +
+    n("awayShots");
+
+  const sot =
+    n("homeSot") +
+    n("awaySot");
+
+  const corners =
+    n("homeCorners") +
+    n("awayCorners");
 
   const pace =
-    clamp((shots / minute) * 160);
+    clamp(
+      (shots / minute) * 160
+    );
 
   const targetRate =
     shots > 0
@@ -186,8 +342,11 @@ function signalCard(
   odd,
   key
 ) {
-  const [label, cls] = status(score);
-  const o = Number(odd || 0);
+  const [label, cls] =
+    status(score);
+
+  const o =
+    Number(odd || 0);
 
   return `
     <div class="signal ${cls}">
@@ -234,10 +393,12 @@ function analyze() {
   const m = metrics();
 
   const home =
-    $("homeTeam")?.value.trim() || "Casa";
+    $("homeTeam")?.value.trim() ||
+    "Casa";
 
   const away =
-    $("awayTeam")?.value.trim() || "Visitante";
+    $("awayTeam")?.value.trim() ||
+    "Visitante";
 
   const temStats =
     m.shots > 0 ||
@@ -314,7 +475,10 @@ function analyze() {
       clamp(
         100 -
         Math.abs(m.homeStrength - 50) * 2 -
-        Math.abs(n("homeGoals") - n("awayGoals")) * 18
+        Math.abs(
+          n("homeGoals") -
+          n("awayGoals")
+        ) * 18
       ),
       "Índice baseado no equilíbrio da partida.",
       n("oddDraw"),
@@ -331,7 +495,8 @@ function analyze() {
   ];
 
   if ($("signals")) {
-    $("signals").innerHTML = sinais.join("");
+    $("signals").innerHTML =
+      sinais.join("");
   }
 
   if ($("analysisText")) {
@@ -358,8 +523,8 @@ function analyze() {
       <br><br>
 
       <span class="muted">
-        Indicadores são estimativas.
-        Não representam garantia de resultado.
+        Os indicadores são estimativas,
+        não garantias de resultado.
       </span>
     `;
   }
@@ -369,17 +534,17 @@ function analyze() {
 }
 
 function atualizarHorario() {
-  if ($("lastUpdate")) {
-    $("lastUpdate").textContent =
-      "Atualizado " +
-      new Date().toLocaleTimeString(
-        "pt-BR",
-        {
-          hour: "2-digit",
-          minute: "2-digit"
-        }
-      );
-  }
+  if (!$("lastUpdate")) return;
+
+  $("lastUpdate").textContent =
+    "Atualizado " +
+    new Date().toLocaleTimeString(
+      "pt-BR",
+      {
+        hour: "2-digit",
+        minute: "2-digit"
+      }
+    );
 }
 
 /* =====================================================
@@ -390,10 +555,12 @@ function renderBuilder() {
   if (!$("builderMarkets")) return;
 
   const home =
-    $("homeTeam")?.value.trim() || "Casa";
+    $("homeTeam")?.value.trim() ||
+    "Casa";
 
   const away =
-    $("awayTeam")?.value.trim() || "Visitante";
+    $("awayTeam")?.value.trim() ||
+    "Visitante";
 
   const mercados = [
     ["home", `${home} vence`, n("oddHome")],
@@ -405,33 +572,36 @@ function renderBuilder() {
   ];
 
   $("builderMarkets").innerHTML =
-    mercados.map(([key, name, odd]) => `
-      <div class="market-row">
-        <span>
-          ${escapeHtml(name)}
-          <br>
+    mercados.map(
+      ([key, name, odd]) => `
+        <div class="market-row">
+          <span>
+            ${escapeHtml(name)}
+            <br>
 
-          <small class="muted">
-            ${
-              odd > 1
-                ? `@ ${odd.toFixed(2)}`
-                : "Odd indisponível"
-            }
-          </small>
-        </span>
+            <small class="muted">
+              ${
+                odd > 1
+                  ? `@ ${odd.toFixed(2)}`
+                  : "Odd indisponível"
+              }
+            </small>
+          </span>
 
-        <button
-          ${odd <= 1 ? "disabled" : ""}
-          onclick="addToTicket(
-            '${key}',
-            '${String(name).replaceAll("'", "\\'")}',
-            ${odd}
-          )"
-        >
-          +
-        </button>
-      </div>
-    `).join("");
+          <button
+            ${odd <= 1 ? "disabled" : ""}
+            onclick="addToTicket(
+              '${key}',
+              '${String(name).replaceAll("'", "\\'")}',
+              ${odd}
+            )"
+          >
+            +
+          </button>
+        </div>
+      `
+    )
+    .join("");
 }
 
 window.addToTicket =
@@ -445,7 +615,11 @@ function(key, name, odd) {
     return;
   }
 
-  if (!ticket.find(item => item.key === key)) {
+  if (
+    !ticket.find(
+      item => item.key === key
+    )
+  ) {
     ticket.push({
       key,
       name,
@@ -459,8 +633,8 @@ function(key, name, odd) {
 function renderTicket() {
   const total =
     ticket.reduce(
-      (acumulado, item) =>
-        acumulado * item.odd,
+      (acc, item) =>
+        acc * item.odd,
       1
     );
 
@@ -481,7 +655,7 @@ function renderTicket() {
 }
 
 /* =====================================================
-   MENU
+   MENU AO VIVO / PRÉ-LIVE
 ===================================================== */
 
 function criarMenuModos() {
@@ -554,11 +728,37 @@ function criarMenuModos() {
     );
 }
 
+function atualizarBotoesModo() {
+  const live =
+    modoAtual === "live";
+
+  if ($("btnLiveMode")) {
+    $("btnLiveMode").style.background =
+      live ? "#2d8cff" : "#102135";
+
+    $("btnLiveMode").style.color =
+      live ? "white" : "#a9bad0";
+  }
+
+  if ($("btnPreLiveMode")) {
+    $("btnPreLiveMode").style.background =
+      live ? "#102135" : "#2d8cff";
+
+    $("btnPreLiveMode").style.color =
+      live ? "#a9bad0" : "white";
+  }
+}
+
 function mudarModo(modo) {
   modoAtual = modo;
 
-  const liveBox = $("liveGamesBox");
-  const preBox = $("preLiveBox");
+  atualizarBotoesModo();
+
+  const liveBox =
+    $("liveGamesBox");
+
+  const preBox =
+    $("preLiveBox");
 
   const dadosPartida =
     $("homeTeam")?.closest("section");
@@ -576,16 +776,12 @@ function mudarModo(modo) {
       dadosPartida.style.display = "";
     }
 
-    $("btnLiveMode").style.background = "#2d8cff";
-    $("btnLiveMode").style.color = "white";
-
-    $("btnPreLiveMode").style.background = "#102135";
-    $("btnPreLiveMode").style.color = "#a9bad0";
-
     if ($("modeLabel")) {
-      $("modeLabel").textContent = "LIVE";
+      $("modeLabel").textContent =
+        "LIVE";
     }
 
+    atualizarJogos(false);
     return;
   }
 
@@ -594,7 +790,8 @@ function mudarModo(modo) {
   }
 
   if (dadosPartida) {
-    dadosPartida.style.display = "none";
+    dadosPartida.style.display =
+      "none";
   }
 
   criarPainelPreLive();
@@ -603,21 +800,16 @@ function mudarModo(modo) {
     preBox.style.display = "block";
   }
 
-  $("btnLiveMode").style.background = "#102135";
-  $("btnLiveMode").style.color = "#a9bad0";
-
-  $("btnPreLiveMode").style.background = "#2d8cff";
-  $("btnPreLiveMode").style.color = "white";
-
   if ($("modeLabel")) {
-    $("modeLabel").textContent = "PRÉ-LIVE";
+    $("modeLabel").textContent =
+      "PRÉ-LIVE";
   }
 
-  carregarPreLive();
+  carregarPreLive(false);
 }
 
 /* =====================================================
-   AO VIVO
+   PAINEL AO VIVO
 ===================================================== */
 
 function criarPainelJogos() {
@@ -672,7 +864,7 @@ function criarPainelJogos() {
 
     <div id="liveGamesList">
       <div style="color:#9eb0c7;">
-        Carregando...
+        Aguardando atualização.
       </div>
     </div>
   `;
@@ -709,8 +901,11 @@ function renderJogos() {
 
   if (!jogosDisponiveis.length) {
     lista.innerHTML = `
-      <div style="color:#9eb0c7;">
-        Nenhum jogo encontrado.
+      <div style="
+        color:#9eb0c7;
+        line-height:1.5;
+      ">
+        Nenhum jogo carregado.
       </div>
     `;
 
@@ -718,122 +913,154 @@ function renderJogos() {
   }
 
   lista.innerHTML =
-    jogosDisponiveis.map(
-      (jogo, index) => `
-        <button
-          onclick="selecionarJogo(${index})"
-          style="
-            width:100%;
-            padding:14px;
-            margin-bottom:10px;
-            background:#091625;
-            color:white;
-            border:1px solid #263d59;
-            border-radius:15px;
-            text-align:left;
-          "
-        >
-          <div style="
-            color:#8fa5bf;
-            font-size:12px;
-          ">
-            ${escapeHtml(jogo.league || "Competição")}
-            •
-            ${
-              jogo.minute
-                ? `${jogo.minute}'`
-                : escapeHtml(jogo.status || "")
-            }
-          </div>
+    jogosDisponiveis
+      .map(
+        (jogo, index) => `
+          <button
+            onclick="selecionarJogo(${index})"
+            style="
+              width:100%;
+              padding:14px;
+              margin-bottom:10px;
+              background:#091625;
+              color:white;
+              border:1px solid #263d59;
+              border-radius:15px;
+              text-align:left;
+            "
+          >
+            <div style="
+              color:#8fa5bf;
+              font-size:12px;
+            ">
+              ${escapeHtml(
+                jogo.league ||
+                "Competição"
+              )}
 
-          <div style="
-            display:flex;
-            justify-content:space-between;
-            align-items:center;
-            gap:8px;
-            margin-top:7px;
-            font-size:16px;
-            font-weight:700;
-          ">
-            <span>
-              ${escapeHtml(jogo.homeTeam)}
-            </span>
+              •
 
-            <strong>
-              ${jogo.homeGoals}
-              ×
-              ${jogo.awayGoals}
-            </strong>
+              ${
+                jogo.minute
+                  ? `${jogo.minute}'`
+                  : escapeHtml(
+                      jogo.status ||
+                      ""
+                    )
+              }
+            </div>
 
-            <span style="text-align:right;">
-              ${escapeHtml(jogo.awayTeam)}
-            </span>
-          </div>
-        </button>
-      `
-    ).join("");
+            <div style="
+              display:flex;
+              justify-content:space-between;
+              align-items:center;
+              gap:8px;
+              margin-top:7px;
+              font-size:16px;
+              font-weight:700;
+            ">
+              <span>
+                ${escapeHtml(
+                  jogo.homeTeam
+                )}
+              </span>
+
+              <strong>
+                ${jogo.homeGoals}
+                ×
+                ${jogo.awayGoals}
+              </strong>
+
+              <span style="
+                text-align:right;
+              ">
+                ${escapeHtml(
+                  jogo.awayTeam
+                )}
+              </span>
+            </div>
+          </button>
+        `
+      )
+      .join("");
 }
 
-async function carregarEstatisticas(fixtureId) {
+/* =====================================================
+   ESTATÍSTICAS AO VIVO
+===================================================== */
+
+async function carregarEstatisticas(
+  fixtureId
+) {
   if (!fixtureId) return;
+
+  const chave =
+    String(fixtureId);
+
+  const cache =
+    statsCache.get(chave);
+
+  if (
+    cache &&
+    Date.now() - cache.timestamp <
+      STATS_CACHE_MS
+  ) {
+    aplicarEstatisticas(
+      cache.data
+    );
+
+    return;
+  }
 
   try {
     const resposta =
       await fetch(
-        `/api/estatisticas?id=${fixtureId}`,
+        `/api/estatisticas?id=${encodeURIComponent(fixtureId)}`,
         {
           cache: "no-store"
         }
       );
 
+    let dados = null;
+
+    try {
+      dados =
+        await resposta.json();
+    } catch (_) {}
+
     if (!resposta.ok) {
-      if (resposta.status === 429) {
-        throw new Error(
-          "Limite da API atingido"
+      if (
+        resposta.status === 429
+      ) {
+        atualizarStatusApi(
+          "limite",
+          "Estatísticas pausadas porque a cota diária foi atingida."
         );
+
+        return;
       }
 
       throw new Error(
+        dados?.erro ||
         mensagemErroHttp(
           resposta.status
         )
       );
     }
 
-    const dados =
-      await resposta.json();
+    statsCache.set(
+      chave,
+      {
+        timestamp:
+          Date.now(),
 
-    setInput(
-      "homeShots",
-      dados.homeShots ?? 0
+        data: dados
+      }
     );
 
-    setInput(
-      "awayShots",
-      dados.awayShots ?? 0
+    aplicarEstatisticas(
+      dados
     );
-
-    setInput(
-      "homeSot",
-      dados.homeSot ?? 0
-    );
-
-    setInput(
-      "awaySot",
-      dados.awaySot ?? 0
-    );
-
-    setInput(
-      "homeCorners",
-      dados.homeCorners ?? 0
-    );
-
-    setInput(
-      "awayCorners",
-      dados.awayCorners ?? 0
-    );
-
-    analyze();
 
   } catch (erro) {
     console.error(
@@ -843,6 +1070,42 @@ async function carregarEstatisticas(fixtureId) {
   }
 }
 
+function aplicarEstatisticas(
+  dados
+) {
+  setInput(
+    "homeShots",
+    dados?.homeShots ?? 0
+  );
+
+  setInput(
+    "awayShots",
+    dados?.awayShots ?? 0
+  );
+
+  setInput(
+    "homeSot",
+    dados?.homeSot ?? 0
+  );
+
+  setInput(
+    "awaySot",
+    dados?.awaySot ?? 0
+  );
+
+  setInput(
+    "homeCorners",
+    dados?.homeCorners ?? 0
+  );
+
+  setInput(
+    "awayCorners",
+    dados?.awayCorners ?? 0
+  );
+
+  analyze();
+}
+
 window.selecionarJogo =
 async function(index) {
   const jogo =
@@ -850,7 +1113,8 @@ async function(index) {
 
   if (!jogo) return;
 
-  jogoSelecionado = jogo;
+  jogoSelecionado =
+    jogo;
 
   if ($("homeTeam")) {
     $("homeTeam").value =
@@ -859,7 +1123,8 @@ async function(index) {
 
   if ($("awayTeam")) {
     $("awayTeam").value =
-      jogo.awayTeam || "Visitante";
+      jogo.awayTeam ||
+      "Visitante";
   }
 
   setInput(
@@ -884,10 +1149,6 @@ async function(index) {
   setInput("homeCorners", 0);
   setInput("awayCorners", 0);
 
-  if ($("modeLabel")) {
-    $("modeLabel").textContent = "LIVE";
-  }
-
   renderJogos();
   analyze();
 
@@ -896,24 +1157,42 @@ async function(index) {
   );
 };
 
-async function atualizarJogos(forcar = false) {
-  const agora = Date.now();
+/* =====================================================
+   CARREGAR JOGOS
+===================================================== */
 
-  if (buscandoJogos) {
-    return;
-  }
+async function atualizarJogos(
+  forcar = false
+) {
+  const agora =
+    Date.now();
+
+  if (buscandoJogos) return;
 
   if (
     !forcar &&
+    jogosDisponiveis.length &&
     agora - ultimaAtualizacaoJogos <
-      MIN_INTERVAL_LIVE &&
-    jogosDisponiveis.length
+      MIN_INTERVAL_LIVE
   ) {
     renderJogos();
+
+    atualizarStatusApi(
+      "ok",
+      "Lista reaproveitada para economizar consultas.",
+      null,
+      true
+    );
+
     return;
   }
 
   buscandoJogos = true;
+
+  atualizarStatusApi(
+    "carregando",
+    "Buscando partidas..."
+  );
 
   try {
     if ($("refreshBtn")) {
@@ -932,20 +1211,57 @@ async function atualizarJogos(forcar = false) {
         }
       );
 
+    let dados = null;
+
+    try {
+      dados =
+        await resposta.json();
+    } catch (_) {}
+
     if (!resposta.ok) {
+      if (
+        resposta.status === 429
+      ) {
+        atualizarStatusApi(
+          "limite",
+          "A cota da API-Football terminou por hoje.",
+          dados?.api || null
+        );
+
+        if ($("liveGamesList")) {
+          $("liveGamesList").innerHTML = `
+            <div style="
+              color:#fca5a5;
+              line-height:1.6;
+            ">
+              <b>
+                Limite diário atingido.
+              </b>
+
+              <br>
+
+              O aplicativo está preservando
+              as requisições e não fará
+              novas consultas automaticamente.
+            </div>
+          `;
+        }
+
+        return;
+      }
+
       throw new Error(
+        dados?.erro ||
+        dados?.detalhe ||
         mensagemErroHttp(
           resposta.status
         )
       );
     }
 
-    const dados =
-      await resposta.json();
-
     jogosDisponiveis =
       Array.isArray(
-        dados.jogos
+        dados?.jogos
       )
         ? dados.jogos
         : [];
@@ -953,14 +1269,16 @@ async function atualizarJogos(forcar = false) {
     ultimaAtualizacaoJogos =
       Date.now();
 
-    renderJogos();
+    atualizarStatusApi(
+      "ok",
+      dados?.modo === "LIVE"
+        ? "Partidas ao vivo carregadas."
+        : "Jogos do dia carregados.",
+      dados?.api || null,
+      Boolean(dados?.cache)
+    );
 
-    if (
-      jogosDisponiveis.length &&
-      !jogoSelecionado
-    ) {
-      await selecionarJogo(0);
-    }
+    renderJogos();
 
   } catch (erro) {
     console.error(
@@ -968,9 +1286,10 @@ async function atualizarJogos(forcar = false) {
       erro
     );
 
-    alert(
-      "Não foi possível carregar os jogos: " +
-      erro.message
+    atualizarStatusApi(
+      "erro",
+      erro.message ||
+      "Erro ao carregar partidas."
     );
 
   } finally {
@@ -994,9 +1313,12 @@ function criarPainelPreLive() {
   if ($("preLiveBox")) return;
 
   const box =
-    document.createElement("section");
+    document.createElement(
+      "section"
+    );
 
-  box.id = "preLiveBox";
+  box.id =
+    "preLiveBox";
 
   box.style.cssText = `
     display:none;
@@ -1042,8 +1364,10 @@ function criarPainelPreLive() {
     </div>
 
     <div id="preLiveList">
-      <div style="color:#9eb0c7;">
-        Carregando análises...
+      <div style="
+        color:#9eb0c7;
+      ">
+        Aguardando carregamento.
       </div>
     </div>
   `;
@@ -1060,269 +1384,6 @@ function criarPainelPreLive() {
     document.body.appendChild(box);
   }
 }
-
-async function buscarAnaliseCompleta(
-  fixtureId
-) {
-  if (
-    analiseCache.has(
-      fixtureId
-    )
-  ) {
-    return analiseCache.get(
-      fixtureId
-    );
-  }
-
-  const resposta =
-    await fetch(
-      `/api/analise-prelive?id=${encodeURIComponent(fixtureId)}`,
-      {
-        cache: "no-store"
-      }
-    );
-
-  let dados = null;
-
-  try {
-    dados = await resposta.json();
-  } catch (_) {}
-
-  if (!resposta.ok) {
-    const mensagem =
-      resposta.status === 429
-        ? "Limite da API atingido. Aguarde a cota liberar."
-        : dados?.detalhe ||
-          dados?.erro ||
-          mensagemErroHttp(
-            resposta.status
-          );
-
-    throw new Error(
-      typeof mensagem === "string"
-        ? mensagem
-        : JSON.stringify(mensagem)
-    );
-  }
-
-  analiseCache.set(
-    fixtureId,
-    dados
-  );
-
-  return dados;
-}
-
-window.analisarPreLive =
-async function(index) {
-  const jogo =
-    jogosPreLive[index];
-
-  if (!jogo) return;
-
-  const container =
-    document.getElementById(
-      `analise-${jogo.fixtureId}`
-    );
-
-  if (container) {
-    container.innerHTML = `
-      <div style="
-        color:#9eb0c7;
-        padding:10px 0;
-      ">
-        Analisando partida...
-      </div>
-    `;
-  }
-
-  try {
-    const analise =
-      await buscarAnaliseCompleta(
-        jogo.fixtureId
-      );
-
-    const mercados =
-      Array.isArray(
-        analise.mercados
-      )
-        ? analise.mercados
-        : [];
-
-    if (!container) return;
-
-    container.innerHTML = `
-      <div style="
-        display:grid;
-        grid-template-columns:repeat(3,1fr);
-        gap:7px;
-        margin-top:12px;
-      ">
-        <div style="
-          background:#102135;
-          padding:10px;
-          border-radius:12px;
-          text-align:center;
-        ">
-          <small style="color:#8fa5bf;">
-            Casa
-          </small>
-          <br>
-          <b style="color:white;">
-            ${analise.probabilidades?.casa ?? 0}%
-          </b>
-        </div>
-
-        <div style="
-          background:#102135;
-          padding:10px;
-          border-radius:12px;
-          text-align:center;
-        ">
-          <small style="color:#8fa5bf;">
-            Empate
-          </small>
-          <br>
-          <b style="color:white;">
-            ${analise.probabilidades?.empate ?? 0}%
-          </b>
-        </div>
-
-        <div style="
-          background:#102135;
-          padding:10px;
-          border-radius:12px;
-          text-align:center;
-        ">
-          <small style="color:#8fa5bf;">
-            Visitante
-          </small>
-          <br>
-          <b style="color:white;">
-            ${analise.probabilidades?.visitante ?? 0}%
-          </b>
-        </div>
-      </div>
-
-      <div style="
-        margin-top:13px;
-        color:#dbe7f4;
-        line-height:1.6;
-      ">
-        <b>Over 1.5:</b>
-        ${analise.probabilidades?.over15 ?? 0}%
-        <br>
-
-        <b>Over 2.5:</b>
-        ${analise.probabilidades?.over25 ?? 0}%
-        <br>
-
-        <b>Ambas marcam:</b>
-        ${analise.probabilidades?.btts ?? 0}%
-      </div>
-
-      <div style="
-        margin-top:14px;
-      ">
-        ${
-          mercados.length
-            ? mercados.slice(0, 6).map(
-                mercado => `
-                  <div style="
-                    background:#081421;
-                    padding:11px;
-                    border-radius:12px;
-                    margin-bottom:7px;
-                  ">
-                    <b style="color:white;">
-                      ${escapeHtml(
-                        mercado.mercado
-                      )}
-                    </b>
-
-                    <br>
-
-                    <span style="
-                      color:#9eb0c7;
-                      font-size:13px;
-                    ">
-                      Probabilidade:
-                      ${mercado.probabilidade}%
-
-                      ${
-                        mercado.odd
-                          ? `• Odd ${Number(mercado.odd).toFixed(2)}`
-                          : "• Sem odd"
-                      }
-
-                      ${
-                        mercado.value !== null &&
-                        mercado.value !== undefined
-                          ? `• Valor ${mercado.value > 0 ? "+" : ""}${mercado.value}%`
-                          : ""
-                      }
-                    </span>
-
-                    <br>
-
-                    <strong style="
-                      color:${
-                        mercado.classificacao === "VALOR FORTE"
-                          ? "#22c55e"
-                          : mercado.classificacao === "VALOR"
-                          ? "#4ade80"
-                          : mercado.classificacao === "NEUTRO"
-                          ? "#f59e0b"
-                          : mercado.classificacao === "SEM ODD"
-                          ? "#8fa5bf"
-                          : "#ef4444"
-                      };
-                    ">
-                      ${escapeHtml(
-                        mercado.classificacao
-                      )}
-                    </strong>
-                  </div>
-                `
-              ).join("")
-            : `
-              <div style="color:#9eb0c7;">
-                Nenhum mercado disponível.
-              </div>
-            `
-        }
-      </div>
-    `;
-
-  } catch (erro) {
-    if (container) {
-      container.innerHTML = `
-        <div style="
-          color:#ef9a9a;
-          padding:12px 0;
-          line-height:1.5;
-        ">
-          <b>Erro na análise:</b>
-          <br>
-
-          ${escapeHtml(
-            erro.message ||
-            "Erro desconhecido"
-          )}
-
-          <br><br>
-
-          <small style="color:#9eb0c7;">
-            Fixture ID:
-            ${escapeHtml(
-              jogo.fixtureId
-            )}
-          </small>
-        </div>
-      `;
-    }
-  }
-};
 
 function renderPreLive() {
   criarPainelPreLive();
@@ -1343,8 +1404,10 @@ function renderPreLive() {
 
   if (!jogosPreLive.length) {
     lista.innerHTML = `
-      <div style="color:#9eb0c7;">
-        Nenhuma partida pré-live encontrada.
+      <div style="
+        color:#9eb0c7;
+      ">
+        Nenhuma partida pré-live carregada.
       </div>
     `;
 
@@ -1352,95 +1415,132 @@ function renderPreLive() {
   }
 
   lista.innerHTML =
-    jogosPreLive.map(
-      (jogo, index) => `
-        <div style="
-          background:#091625;
-          border:1px solid #263d59;
-          border-radius:16px;
-          padding:15px;
-          margin-bottom:13px;
-        ">
+    jogosPreLive
+      .map(
+        (jogo, index) => `
           <div style="
-            color:#8fa5bf;
-            font-size:12px;
+            background:#091625;
+            border:1px solid #263d59;
+            border-radius:16px;
+            padding:15px;
+            margin-bottom:13px;
           ">
-            ${escapeHtml(jogo.league || "Competição")}
-            •
-            ${escapeHtml(jogo.country || "")}
-          </div>
+            <div style="
+              color:#8fa5bf;
+              font-size:12px;
+            ">
+              ${escapeHtml(
+                jogo.league ||
+                "Competição"
+              )}
 
-          <div style="
-            display:flex;
-            justify-content:space-between;
-            gap:8px;
-            margin-top:9px;
-            color:white;
-            font-size:17px;
-            font-weight:800;
-          ">
-            <span>
-              ${escapeHtml(jogo.homeTeam)}
-            </span>
+              •
 
-            <span>×</span>
+              ${escapeHtml(
+                jogo.country ||
+                ""
+              )}
+            </div>
 
-            <span style="text-align:right;">
-              ${escapeHtml(jogo.awayTeam)}
-            </span>
-          </div>
-
-          <button
-            onclick="analisarPreLive(${index})"
-            style="
-              width:100%;
-              margin-top:13px;
-              padding:12px;
-              border:0;
-              border-radius:12px;
-              background:#2d8cff;
+            <div style="
+              display:flex;
+              justify-content:space-between;
+              gap:8px;
+              margin-top:9px;
               color:white;
+              font-size:17px;
               font-weight:800;
-            "
-          >
-            Analisar pré-jogo
-          </button>
+            ">
+              <span>
+                ${escapeHtml(
+                  jogo.homeTeam
+                )}
+              </span>
 
-          <div
-            id="analise-${jogo.fixtureId}"
-          ></div>
-        </div>
-      `
-    ).join("");
+              <span>×</span>
+
+              <span style="
+                text-align:right;
+              ">
+                ${escapeHtml(
+                  jogo.awayTeam
+                )}
+              </span>
+            </div>
+
+            <button
+              onclick="
+                analisarPreLive(
+                  ${index}
+                )
+              "
+              style="
+                width:100%;
+                margin-top:13px;
+                padding:12px;
+                border:0;
+                border-radius:12px;
+                background:#2d8cff;
+                color:white;
+                font-weight:800;
+              "
+            >
+              Analisar pré-jogo
+            </button>
+
+            <div
+              id="analise-${jogo.fixtureId}"
+            ></div>
+          </div>
+        `
+      )
+      .join("");
 }
+
+/* =====================================================
+   CARREGAR PRÉ-LIVE
+===================================================== */
 
 async function carregarPreLive(
   forcar = false
 ) {
-  const agora = Date.now();
+  const agora =
+    Date.now();
 
-  if (buscandoPreLive) {
-    return;
-  }
+  if (buscandoPreLive) return;
 
   if (
     !forcar &&
+    jogosPreLive.length &&
     agora - ultimaAtualizacaoPreLive <
-      MIN_INTERVAL_PRELIVE &&
-    jogosPreLive.length
+      MIN_INTERVAL_PRELIVE
   ) {
     renderPreLive();
+
+    atualizarStatusApi(
+      "ok",
+      "PRÉ-LIVE reaproveitado do cache.",
+      null,
+      true
+    );
+
     return;
   }
 
-  buscandoPreLive = true;
+  buscandoPreLive =
+    true;
+
+  atualizarStatusApi(
+    "carregando",
+    "Buscando jogos pré-live..."
+  );
 
   try {
-    criarPainelPreLive();
-
     if ($("preLiveList")) {
       $("preLiveList").innerHTML = `
-        <div style="color:#9eb0c7;">
+        <div style="
+          color:#9eb0c7;
+        ">
           Buscando jogos pré-live...
         </div>
       `;
@@ -1454,26 +1554,52 @@ async function carregarPreLive(
         }
       );
 
+    let dados = null;
+
+    try {
+      dados =
+        await resposta.json();
+    } catch (_) {}
+
     if (!resposta.ok) {
+      if (
+        resposta.status === 429
+      ) {
+        atualizarStatusApi(
+          "limite",
+          "PRÉ-LIVE pausado porque a cota diária terminou."
+        );
+
+        throw new Error(
+          "Limite diário da API atingido."
+        );
+      }
+
       throw new Error(
+        dados?.erro ||
+        dados?.detalhe ||
         mensagemErroHttp(
           resposta.status
         )
       );
     }
 
-    const dados =
-      await resposta.json();
-
     jogosPreLive =
       Array.isArray(
-        dados.jogos
+        dados?.jogos
       )
         ? dados.jogos
         : [];
 
     ultimaAtualizacaoPreLive =
       Date.now();
+
+    atualizarStatusApi(
+      "ok",
+      "Jogos pré-live carregados.",
+      dados?.api || null,
+      Boolean(dados?.cache)
+    );
 
     renderPreLive();
 
@@ -1486,7 +1612,7 @@ async function carregarPreLive(
     if ($("preLiveList")) {
       $("preLiveList").innerHTML = `
         <div style="
-          color:#ef9a9a;
+          color:#fca5a5;
           line-height:1.5;
         ">
           ${escapeHtml(
@@ -1497,8 +1623,321 @@ async function carregarPreLive(
     }
 
   } finally {
-    buscandoPreLive = false;
+    buscandoPreLive =
+      false;
   }
+}
+
+/* =====================================================
+   ANÁLISE PRÉ-LIVE
+===================================================== */
+
+async function buscarAnaliseCompleta(
+  fixtureId
+) {
+  const chave =
+    String(fixtureId);
+
+  if (
+    analiseCache.has(chave)
+  ) {
+    return analiseCache.get(
+      chave
+    );
+  }
+
+  const resposta =
+    await fetch(
+      `/api/analise-prelive?id=${encodeURIComponent(fixtureId)}`,
+      {
+        cache: "no-store"
+      }
+    );
+
+  let dados = null;
+
+  try {
+    dados =
+      await resposta.json();
+  } catch (_) {}
+
+  if (!resposta.ok) {
+    if (
+      resposta.status === 429
+    ) {
+      atualizarStatusApi(
+        "limite",
+        "Análises pausadas porque a cota diária terminou."
+      );
+
+      throw new Error(
+        "Limite diário da API atingido."
+      );
+    }
+
+    throw new Error(
+      typeof dados?.detalhe === "string"
+        ? dados.detalhe
+        : dados?.erro ||
+          mensagemErroHttp(
+            resposta.status
+          )
+    );
+  }
+
+  analiseCache.set(
+    chave,
+    dados
+  );
+
+  return dados;
+}
+
+window.analisarPreLive =
+async function(index) {
+  const jogo =
+    jogosPreLive[index];
+
+  if (!jogo) return;
+
+  const container =
+    $(
+      `analise-${jogo.fixtureId}`
+    );
+
+  if (!container) return;
+
+  container.innerHTML = `
+    <div style="
+      color:#9eb0c7;
+      padding:10px 0;
+    ">
+      Analisando partida...
+    </div>
+  `;
+
+  try {
+    const analise =
+      await buscarAnaliseCompleta(
+        jogo.fixtureId
+      );
+
+    const mercados =
+      Array.isArray(
+        analise?.mercados
+      )
+        ? analise.mercados
+        : [];
+
+    container.innerHTML = `
+      <div style="
+        display:grid;
+        grid-template-columns:repeat(3,1fr);
+        gap:7px;
+        margin-top:12px;
+      ">
+        ${cardProb(
+          "Casa",
+          analise?.probabilidades?.casa
+        )}
+
+        ${cardProb(
+          "Empate",
+          analise?.probabilidades?.empate
+        )}
+
+        ${cardProb(
+          "Visitante",
+          analise?.probabilidades?.visitante
+        )}
+      </div>
+
+      <div style="
+        margin-top:13px;
+        color:#dbe7f4;
+        line-height:1.7;
+      ">
+        <b>Over 1.5:</b>
+        ${analise?.probabilidades?.over15 ?? 0}%
+
+        <br>
+
+        <b>Over 2.5:</b>
+        ${analise?.probabilidades?.over25 ?? 0}%
+
+        <br>
+
+        <b>Ambas marcam:</b>
+        ${analise?.probabilidades?.btts ?? 0}%
+
+        ${
+          analise?.prediction?.winner
+            ? `
+              <br>
+              <b>Favorito:</b>
+              ${escapeHtml(
+                analise.prediction.winner
+              )}
+            `
+            : ""
+        }
+      </div>
+
+      <div style="
+        margin-top:14px;
+      ">
+        ${
+          mercados.length
+            ? mercados
+                .slice(0, 6)
+                .map(
+                  mercado =>
+                    cardMercado(
+                      mercado
+                    )
+                )
+                .join("")
+            : `
+              <div style="
+                color:#9eb0c7;
+              ">
+                Nenhum mercado disponível.
+              </div>
+            `
+        }
+      </div>
+    `;
+
+  } catch (erro) {
+    container.innerHTML = `
+      <div style="
+        color:#fca5a5;
+        padding:12px 0;
+        line-height:1.5;
+      ">
+        <b>
+          Não foi possível analisar.
+        </b>
+
+        <br>
+
+        ${escapeHtml(
+          erro.message ||
+          "Erro desconhecido"
+        )}
+      </div>
+    `;
+  }
+};
+
+function cardProb(
+  nome,
+  valor
+) {
+  return `
+    <div style="
+      background:#102135;
+      padding:10px;
+      border-radius:12px;
+      text-align:center;
+    ">
+      <small style="
+        color:#8fa5bf;
+      ">
+        ${escapeHtml(nome)}
+      </small>
+
+      <br>
+
+      <b style="
+        color:white;
+      ">
+        ${Number(valor || 0)}%
+      </b>
+    </div>
+  `;
+}
+
+function cardMercado(
+  mercado
+) {
+  let cor =
+    "#8fa5bf";
+
+  if (
+    mercado.classificacao ===
+    "VALOR FORTE"
+  ) {
+    cor = "#22c55e";
+  } else if (
+    mercado.classificacao ===
+    "VALOR"
+  ) {
+    cor = "#4ade80";
+  } else if (
+    mercado.classificacao ===
+    "NEUTRO"
+  ) {
+    cor = "#f59e0b";
+  } else if (
+    mercado.classificacao ===
+    "EVITAR"
+  ) {
+    cor = "#ef4444";
+  }
+
+  return `
+    <div style="
+      background:#081421;
+      padding:11px;
+      border-radius:12px;
+      margin-bottom:7px;
+    ">
+      <b style="
+        color:white;
+      ">
+        ${escapeHtml(
+          mercado.mercado
+        )}
+      </b>
+
+      <br>
+
+      <span style="
+        color:#9eb0c7;
+        font-size:13px;
+      ">
+        Probabilidade:
+        ${Number(
+          mercado.probabilidade || 0
+        )}%
+
+        ${
+          mercado.odd
+            ? `• Odd ${Number(mercado.odd).toFixed(2)}`
+            : "• Sem odd"
+        }
+
+        ${
+          mercado.value !== null &&
+          mercado.value !== undefined
+            ? `• Valor ${mercado.value > 0 ? "+" : ""}${mercado.value}%`
+            : ""
+        }
+      </span>
+
+      <br>
+
+      <strong style="
+        color:${cor};
+      ">
+        ${escapeHtml(
+          mercado.classificacao ||
+          ""
+        )}
+      </strong>
+    </div>
+  `;
 }
 
 /* =====================================================
@@ -1524,7 +1963,14 @@ $("refreshBtn")
   ?.addEventListener(
     "click",
     () => {
-      if (modoAtual === "prelive") {
+      /*
+        Forçar atualização ainda respeita
+        o cache do backend.
+      */
+
+      if (
+        modoAtual === "prelive"
+      ) {
         carregarPreLive(true);
       } else {
         atualizarJogos(true);
@@ -1532,29 +1978,41 @@ $("refreshBtn")
     }
   );
 
-ids.forEach(id => {
-  $(id)
-    ?.addEventListener(
-      "change",
-      renderBuilder
-    );
-});
+ids.forEach(
+  id => {
+    $(id)
+      ?.addEventListener(
+        "change",
+        renderBuilder
+      );
+  }
+);
 
 /* =====================================================
    INICIALIZAÇÃO
 ===================================================== */
 
 criarMenuModos();
+criarStatusApi();
 criarPainelJogos();
 criarPainelPreLive();
 
 renderBuilder();
+renderTicket();
 analyze();
 
+atualizarStatusApi(
+  "ok",
+  "Aplicativo iniciado. Aguardando dados.",
+  null,
+  true
+);
+
 /*
-  Apenas UMA atualização automática
-  quando o app abre.
+  Faz somente UMA consulta automática
+  na abertura do aplicativo.
 */
+
 window.addEventListener(
   "load",
   () => {
