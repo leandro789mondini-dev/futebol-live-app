@@ -29,6 +29,14 @@ let modoAtual = "live";
 
 const analiseCache = new Map();
 
+let buscandoJogos = false;
+let buscandoPreLive = false;
+let ultimaAtualizacaoJogos = 0;
+let ultimaAtualizacaoPreLive = 0;
+
+const MIN_INTERVAL_LIVE = 30000;
+const MIN_INTERVAL_PRELIVE = 5 * 60 * 1000;
+
 /* =====================================================
    UTILIDADES
 ===================================================== */
@@ -75,37 +83,35 @@ function escapeHtml(texto) {
     .replaceAll("'", "&#039;");
 }
 
+function mensagemErroHttp(status) {
+  if (status === 429) {
+    return "Limite de consultas da API atingido. Aguarde a cota liberar ou tente novamente mais tarde.";
+  }
+
+  if (status === 401 || status === 403) {
+    return "A API recusou a autenticação. Verifique a chave da API.";
+  }
+
+  if (status === 404) {
+    return "Dados não encontrados para esta partida.";
+  }
+
+  return `Erro HTTP ${status}`;
+}
+
 /* =====================================================
    ANÁLISE AO VIVO
 ===================================================== */
 
 function metrics() {
-  const minute =
-    Math.max(
-      1,
-      n("minute")
-    );
-
-  const totalGoals =
-    n("homeGoals") +
-    n("awayGoals");
-
-  const shots =
-    n("homeShots") +
-    n("awayShots");
-
-  const sot =
-    n("homeSot") +
-    n("awaySot");
-
-  const corners =
-    n("homeCorners") +
-    n("awayCorners");
+  const minute = Math.max(1, n("minute"));
+  const totalGoals = n("homeGoals") + n("awayGoals");
+  const shots = n("homeShots") + n("awayShots");
+  const sot = n("homeSot") + n("awaySot");
+  const corners = n("homeCorners") + n("awayCorners");
 
   const pace =
-    clamp(
-      (shots / minute) * 160
-    );
+    clamp((shots / minute) * 160);
 
   const targetRate =
     shots > 0
@@ -123,31 +129,15 @@ function metrics() {
     clamp(
       totalGoals * 24 +
       pressure * 0.62 +
-      (
-        minute > 65
-          ? 8
-          : 0
-      )
+      (minute > 65 ? 8 : 0)
     );
 
   const btts =
     clamp(
-      (
-        n("homeSot") > 0
-          ? 24
-          : 0
-      ) +
-      (
-        n("awaySot") > 0
-          ? 24
-          : 0
-      ) +
+      (n("homeSot") > 0 ? 24 : 0) +
+      (n("awaySot") > 0 ? 24 : 0) +
       pressure * 0.48 +
-      (
-        totalGoals >= 2
-          ? 8
-          : 0
-      )
+      (totalGoals >= 2 ? 8 : 0)
     );
 
   const projectedCorners =
@@ -155,30 +145,16 @@ function metrics() {
 
   const cornerIndex =
     clamp(
-      (
-        projectedCorners / 10
-      ) * 75
+      (projectedCorners / 10) * 75
     );
 
   const homeStrength =
     clamp(
       50 +
-      (
-        n("homeSot") -
-        n("awaySot")
-      ) * 7 +
-      (
-        n("homeShots") -
-        n("awayShots")
-      ) * 2 +
-      (
-        n("homeCorners") -
-        n("awayCorners")
-      ) * 1.5 +
-      (
-        n("homeGoals") -
-        n("awayGoals")
-      ) * 13
+      (n("homeSot") - n("awaySot")) * 7 +
+      (n("homeShots") - n("awayShots")) * 2 +
+      (n("homeCorners") - n("awayCorners")) * 1.5 +
+      (n("homeGoals") - n("awayGoals")) * 13
     );
 
   return {
@@ -193,30 +169,14 @@ function metrics() {
     projectedCorners,
     cornerIndex,
     homeStrength,
-    awayStrength:
-      100 - homeStrength
+    awayStrength: 100 - homeStrength
   };
 }
 
 function status(score) {
-  if (score >= 72) {
-    return [
-      "BOA",
-      "good"
-    ];
-  }
-
-  if (score >= 55) {
-    return [
-      "AGUARDE",
-      "wait"
-    ];
-  }
-
-  return [
-    "EVITAR",
-    "avoid"
-  ];
+  if (score >= 72) return ["BOA", "good"];
+  if (score >= 55) return ["AGUARDE", "wait"];
+  return ["EVITAR", "avoid"];
 }
 
 function signalCard(
@@ -226,21 +186,13 @@ function signalCard(
   odd,
   key
 ) {
-  const [
-    label,
-    cls
-  ] = status(score);
-
-  const o =
-    Number(odd || 0);
+  const [label, cls] = status(score);
+  const o = Number(odd || 0);
 
   return `
     <div class="signal ${cls}">
-
       <div class="top">
-
         <div>
-
           <div class="market">
             ${escapeHtml(name)}
           </div>
@@ -248,13 +200,11 @@ function signalCard(
           <div class="score">
             ${pct(score)}
           </div>
-
         </div>
 
         <span class="pill ${cls}">
           ${label}
         </span>
-
       </div>
 
       <div class="why">
@@ -263,31 +213,19 @@ function signalCard(
 
       <button
         class="ghost full"
-
-        ${
-          o <= 1
-            ? "disabled"
-            : ""
-        }
-
+        ${o <= 1 ? "disabled" : ""}
         onclick="addToTicket(
           '${key}',
-          '${String(name).replaceAll(
-            "'",
-            "\\'"
-          )}',
+          '${String(name).replaceAll("'", "\\'")}',
           ${o}
         )"
       >
-
         ${
           o > 1
             ? `Adicionar @ ${o.toFixed(2)}`
             : "Odd indisponível"
         }
-
       </button>
-
     </div>
   `;
 }
@@ -296,16 +234,10 @@ function analyze() {
   const m = metrics();
 
   const home =
-    $("homeTeam")
-      ?.value
-      .trim() ||
-    "Casa";
+    $("homeTeam")?.value.trim() || "Casa";
 
   const away =
-    $("awayTeam")
-      ?.value
-      .trim() ||
-    "Visitante";
+    $("awayTeam")?.value.trim() || "Visitante";
 
   const temStats =
     m.shots > 0 ||
@@ -325,8 +257,7 @@ function analyze() {
 
         <br>
 
-        Minuto:
-        ${n("minute")}'
+        Minuto: ${n("minute")}'
 
         <br><br>
 
@@ -342,7 +273,6 @@ function analyze() {
 
     renderBuilder();
     atualizarHorario();
-
     return;
   }
 
@@ -350,12 +280,7 @@ function analyze() {
     signalCard(
       "Mais de 2.5 gols",
       m.over25,
-
-      `${m.shots} finalizações,
-       ${m.sot} no alvo e
-       ${m.totalGoals} gols até
-       ${m.minute}'.`,
-
+      `${m.shots} finalizações, ${m.sot} no alvo e ${m.totalGoals} gols até ${m.minute}'.`,
       n("oddOver25"),
       "over25"
     ),
@@ -363,12 +288,7 @@ function analyze() {
     signalCard(
       "Ambas marcam",
       m.btts,
-
-      `${escapeHtml(home)}:
-       ${n("homeSot")} no alvo.
-       ${escapeHtml(away)}:
-       ${n("awaySot")} no alvo.`,
-
+      `${escapeHtml(home)}: ${n("homeSot")} no alvo. ${escapeHtml(away)}: ${n("awaySot")} no alvo.`,
       n("oddBtts"),
       "btts"
     ),
@@ -376,11 +296,7 @@ function analyze() {
     signalCard(
       "Mais de 8.5 escanteios",
       m.cornerIndex,
-
-      `${m.corners} escanteios.
-       Projeção aproximada:
-       ${m.projectedCorners.toFixed(1)}.`,
-
+      `${m.corners} escanteios. Projeção aproximada: ${m.projectedCorners.toFixed(1)}.`,
       n("oddCorners"),
       "corners"
     ),
@@ -388,29 +304,19 @@ function analyze() {
     signalCard(
       `${home} vence`,
       m.homeStrength,
-
       "Índice baseado em placar e estatísticas ao vivo.",
-
       n("oddHome"),
       "home"
     ),
 
     signalCard(
       "Empate",
-
       clamp(
         100 -
-        Math.abs(
-          m.homeStrength - 50
-        ) * 2 -
-        Math.abs(
-          n("homeGoals") -
-          n("awayGoals")
-        ) * 18
+        Math.abs(m.homeStrength - 50) * 2 -
+        Math.abs(n("homeGoals") - n("awayGoals")) * 18
       ),
-
       "Índice baseado no equilíbrio da partida.",
-
       n("oddDraw"),
       "draw"
     ),
@@ -418,46 +324,32 @@ function analyze() {
     signalCard(
       `${away} vence`,
       m.awayStrength,
-
       "Índice baseado em placar e estatísticas ao vivo.",
-
       n("oddAway"),
       "away"
     )
   ];
 
   if ($("signals")) {
-    $("signals").innerHTML =
-      sinais.join("");
+    $("signals").innerHTML = sinais.join("");
   }
 
   if ($("analysisText")) {
     $("analysisText").innerHTML = `
-
       <b>Finalizações:</b>
-      ${n("homeShots")}
-      ×
-      ${n("awayShots")}
-
+      ${n("homeShots")} × ${n("awayShots")}
       <br>
 
       <b>No alvo:</b>
-      ${n("homeSot")}
-      ×
-      ${n("awaySot")}
-
+      ${n("homeSot")} × ${n("awaySot")}
       <br>
 
       <b>Escanteios:</b>
-      ${n("homeCorners")}
-      ×
-      ${n("awayCorners")}
-
+      ${n("homeCorners")} × ${n("awayCorners")}
       <br>
 
       <b>Over 2.5:</b>
       ${pct(m.over25)}
-
       <br>
 
       <b>BTTS:</b>
@@ -491,124 +383,60 @@ function atualizarHorario() {
 }
 
 /* =====================================================
-   CONSTRUTOR DE MÚLTIPLAS
+   CONSTRUTOR
 ===================================================== */
 
 function renderBuilder() {
-  if (!$("builderMarkets")) {
-    return;
-  }
+  if (!$("builderMarkets")) return;
 
   const home =
-    $("homeTeam")
-      ?.value
-      .trim() ||
-    "Casa";
+    $("homeTeam")?.value.trim() || "Casa";
 
   const away =
-    $("awayTeam")
-      ?.value
-      .trim() ||
-    "Visitante";
+    $("awayTeam")?.value.trim() || "Visitante";
 
   const mercados = [
-    [
-      "home",
-      `${home} vence`,
-      n("oddHome")
-    ],
-
-    [
-      "draw",
-      "Empate",
-      n("oddDraw")
-    ],
-
-    [
-      "away",
-      `${away} vence`,
-      n("oddAway")
-    ],
-
-    [
-      "over25",
-      "Mais de 2.5 gols",
-      n("oddOver25")
-    ],
-
-    [
-      "btts",
-      "Ambas marcam",
-      n("oddBtts")
-    ],
-
-    [
-      "corners",
-      "Mais de 8.5 escanteios",
-      n("oddCorners")
-    ]
+    ["home", `${home} vence`, n("oddHome")],
+    ["draw", "Empate", n("oddDraw")],
+    ["away", `${away} vence`, n("oddAway")],
+    ["over25", "Mais de 2.5 gols", n("oddOver25")],
+    ["btts", "Ambas marcam", n("oddBtts")],
+    ["corners", "Mais de 8.5 escanteios", n("oddCorners")]
   ];
 
   $("builderMarkets").innerHTML =
-    mercados.map(
-      ([
-        key,
-        name,
-        odd
-      ]) => `
+    mercados.map(([key, name, odd]) => `
+      <div class="market-row">
+        <span>
+          ${escapeHtml(name)}
+          <br>
 
-        <div class="market-row">
-
-          <span>
-
-            ${escapeHtml(name)}
-
-            <br>
-
-            <small class="muted">
-
-              ${
-                odd > 1
-                  ? `@ ${odd.toFixed(2)}`
-                  : "Odd indisponível"
-              }
-
-            </small>
-
-          </span>
-
-          <button
+          <small class="muted">
             ${
-              odd <= 1
-                ? "disabled"
-                : ""
+              odd > 1
+                ? `@ ${odd.toFixed(2)}`
+                : "Odd indisponível"
             }
+          </small>
+        </span>
 
-            onclick="addToTicket(
-              '${key}',
-              '${String(name).replaceAll(
-                "'",
-                "\\'"
-              )}',
-              ${odd}
-            )"
-          >
-            +
-          </button>
-
-        </div>
-      `
-    ).join("");
+        <button
+          ${odd <= 1 ? "disabled" : ""}
+          onclick="addToTicket(
+            '${key}',
+            '${String(name).replaceAll("'", "\\'")}',
+            ${odd}
+          )"
+        >
+          +
+        </button>
+      </div>
+    `).join("");
 }
 
 window.addToTicket =
-function(
-  key,
-  name,
-  odd
-) {
-  odd =
-    Number(odd);
+function(key, name, odd) {
+  odd = Number(odd);
 
   if (
     !Number.isFinite(odd) ||
@@ -617,12 +445,7 @@ function(
     return;
   }
 
-  if (
-    !ticket.find(
-      item =>
-        item.key === key
-    )
-  ) {
+  if (!ticket.find(item => item.key === key)) {
     ticket.push({
       key,
       name,
@@ -636,13 +459,8 @@ function(
 function renderTicket() {
   const total =
     ticket.reduce(
-      (
-        acumulado,
-        item
-      ) =>
-        acumulado *
-        item.odd,
-
+      (acumulado, item) =>
+        acumulado * item.odd,
       1
     );
 
@@ -658,28 +476,21 @@ function renderTicket() {
 
   if ($("ticketReturn")) {
     $("ticketReturn").textContent =
-      brl(
-        10 * total
-      );
+      brl(10 * total);
   }
 }
 
 /* =====================================================
-   BOTÕES AO VIVO / PRÉ-LIVE
+   MENU
 ===================================================== */
 
 function criarMenuModos() {
-  if ($("modeSwitcher")) {
-    return;
-  }
+  if ($("modeSwitcher")) return;
 
   const box =
-    document.createElement(
-      "div"
-    );
+    document.createElement("div");
 
-  box.id =
-    "modeSwitcher";
+  box.id = "modeSwitcher";
 
   box.style.cssText = `
     max-width:1100px;
@@ -695,7 +506,6 @@ function criarMenuModos() {
   box.innerHTML = `
     <button
       id="btnLiveMode"
-
       style="
         flex:1;
         padding:13px;
@@ -711,7 +521,6 @@ function criarMenuModos() {
 
     <button
       id="btnPreLiveMode"
-
       style="
         flex:1;
         padding:13px;
@@ -735,138 +544,89 @@ function criarMenuModos() {
   $("btnLiveMode")
     ?.addEventListener(
       "click",
-      () =>
-        mudarModo("live")
+      () => mudarModo("live")
     );
 
   $("btnPreLiveMode")
     ?.addEventListener(
       "click",
-      () =>
-        mudarModo("prelive")
+      () => mudarModo("prelive")
     );
 }
 
 function mudarModo(modo) {
   modoAtual = modo;
 
-  const liveBox =
-    $("liveGamesBox");
-
-  const preBox =
-    $("preLiveBox");
+  const liveBox = $("liveGamesBox");
+  const preBox = $("preLiveBox");
 
   const dadosPartida =
-    $("homeTeam")
-      ?.closest("section");
+    $("homeTeam")?.closest("section");
 
   if (modo === "live") {
     if (liveBox) {
-      liveBox.style.display =
-        "block";
+      liveBox.style.display = "block";
     }
 
     if (preBox) {
-      preBox.style.display =
-        "none";
+      preBox.style.display = "none";
     }
 
     if (dadosPartida) {
-      dadosPartida.style.display =
-        "";
+      dadosPartida.style.display = "";
     }
 
-    if ($("btnLiveMode")) {
-      $("btnLiveMode")
-        .style.background =
-        "#2d8cff";
+    $("btnLiveMode").style.background = "#2d8cff";
+    $("btnLiveMode").style.color = "white";
 
-      $("btnLiveMode")
-        .style.color =
-        "white";
-    }
-
-    if ($("btnPreLiveMode")) {
-      $("btnPreLiveMode")
-        .style.background =
-        "#102135";
-
-      $("btnPreLiveMode")
-        .style.color =
-        "#a9bad0";
-    }
+    $("btnPreLiveMode").style.background = "#102135";
+    $("btnPreLiveMode").style.color = "#a9bad0";
 
     if ($("modeLabel")) {
-      $("modeLabel")
-        .textContent =
-        "LIVE";
+      $("modeLabel").textContent = "LIVE";
     }
 
     return;
   }
 
   if (liveBox) {
-    liveBox.style.display =
-      "none";
+    liveBox.style.display = "none";
   }
 
   if (dadosPartida) {
-    dadosPartida.style.display =
-      "none";
+    dadosPartida.style.display = "none";
   }
 
   criarPainelPreLive();
 
   if (preBox) {
-    preBox.style.display =
-      "block";
+    preBox.style.display = "block";
   }
 
-  if ($("btnLiveMode")) {
-    $("btnLiveMode")
-      .style.background =
-      "#102135";
+  $("btnLiveMode").style.background = "#102135";
+  $("btnLiveMode").style.color = "#a9bad0";
 
-    $("btnLiveMode")
-      .style.color =
-      "#a9bad0";
-  }
-
-  if ($("btnPreLiveMode")) {
-    $("btnPreLiveMode")
-      .style.background =
-      "#2d8cff";
-
-    $("btnPreLiveMode")
-      .style.color =
-      "white";
-  }
+  $("btnPreLiveMode").style.background = "#2d8cff";
+  $("btnPreLiveMode").style.color = "white";
 
   if ($("modeLabel")) {
-    $("modeLabel")
-      .textContent =
-      "PRÉ-LIVE";
+    $("modeLabel").textContent = "PRÉ-LIVE";
   }
 
   carregarPreLive();
 }
 
 /* =====================================================
-   PAINEL AO VIVO
+   AO VIVO
 ===================================================== */
 
 function criarPainelJogos() {
-  if ($("liveGamesBox")) {
-    return;
-  }
+  if ($("liveGamesBox")) return;
 
   const box =
-    document.createElement(
-      "section"
-    );
+    document.createElement("section");
 
-  box.id =
-    "liveGamesBox";
+  box.id = "liveGamesBox";
 
   box.style.cssText = `
     margin:20px auto;
@@ -878,16 +638,13 @@ function criarPainelJogos() {
   `;
 
   box.innerHTML = `
-
     <div style="
       display:flex;
       justify-content:space-between;
       align-items:center;
       margin-bottom:15px;
     ">
-
       <div>
-
         <div style="
           color:#55a7ff;
           font-size:13px;
@@ -903,46 +660,33 @@ function criarPainelJogos() {
         ">
           ⚽ Jogos ao vivo
         </div>
-
       </div>
 
       <span
         id="liveGamesCount"
-        style="
-          color:#9eb0c7;
-        "
+        style="color:#9eb0c7;"
       >
         0 jogos
       </span>
-
     </div>
 
     <div id="liveGamesList">
-
-      <div style="
-        color:#9eb0c7;
-      ">
+      <div style="color:#9eb0c7;">
         Carregando...
       </div>
-
     </div>
   `;
 
   const referencia =
-    $("homeTeam")
-      ?.closest("section");
+    $("homeTeam")?.closest("section");
 
-  if (
-    referencia?.parentNode
-  ) {
-    referencia.parentNode
-      .insertBefore(
-        box,
-        referencia
-      );
+  if (referencia?.parentNode) {
+    referencia.parentNode.insertBefore(
+      box,
+      referencia
+    );
   } else {
-    document.body
-      .appendChild(box);
+    document.body.appendChild(box);
   }
 }
 
@@ -952,9 +696,7 @@ function renderJogos() {
   const lista =
     $("liveGamesList");
 
-  if (!lista) {
-    return;
-  }
+  if (!lista) return;
 
   if ($("liveGamesCount")) {
     $("liveGamesCount").textContent =
@@ -965,9 +707,7 @@ function renderJogos() {
       }`;
   }
 
-  if (
-    !jogosDisponiveis.length
-  ) {
+  if (!jogosDisponiveis.length) {
     lista.innerHTML = `
       <div style="color:#9eb0c7;">
         Nenhum jogo encontrado.
@@ -979,18 +719,9 @@ function renderJogos() {
 
   lista.innerHTML =
     jogosDisponiveis.map(
-      (
-        jogo,
-        index
-      ) => `
-
+      (jogo, index) => `
         <button
-          onclick="
-            selecionarJogo(
-              ${index}
-            )
-          "
-
+          onclick="selecionarJogo(${index})"
           style="
             width:100%;
             padding:14px;
@@ -1002,28 +733,17 @@ function renderJogos() {
             text-align:left;
           "
         >
-
           <div style="
             color:#8fa5bf;
             font-size:12px;
           ">
-
-            ${escapeHtml(
-              jogo.league ||
-              "Competição"
-            )}
-
+            ${escapeHtml(jogo.league || "Competição")}
             •
-
             ${
               jogo.minute
                 ? `${jogo.minute}'`
-                : escapeHtml(
-                    jogo.status ||
-                    ""
-                  )
+                : escapeHtml(jogo.status || "")
             }
-
           </div>
 
           <div style="
@@ -1035,11 +755,8 @@ function renderJogos() {
             font-size:16px;
             font-weight:700;
           ">
-
             <span>
-              ${escapeHtml(
-                jogo.homeTeam
-              )}
+              ${escapeHtml(jogo.homeTeam)}
             </span>
 
             <strong>
@@ -1048,42 +765,38 @@ function renderJogos() {
               ${jogo.awayGoals}
             </strong>
 
-            <span style="
-              text-align:right;
-            ">
-              ${escapeHtml(
-                jogo.awayTeam
-              )}
+            <span style="text-align:right;">
+              ${escapeHtml(jogo.awayTeam)}
             </span>
-
           </div>
-
         </button>
       `
     ).join("");
 }
 
-async function carregarEstatisticas(
-  fixtureId
-) {
-  if (!fixtureId) {
-    return;
-  }
+async function carregarEstatisticas(fixtureId) {
+  if (!fixtureId) return;
 
   try {
     const resposta =
       await fetch(
         `/api/estatisticas?id=${fixtureId}`,
         {
-          cache:
-            "no-store"
+          cache: "no-store"
         }
       );
 
     if (!resposta.ok) {
+      if (resposta.status === 429) {
+        throw new Error(
+          "Limite da API atingido"
+        );
+      }
+
       throw new Error(
-        "HTTP " +
-        resposta.status
+        mensagemErroHttp(
+          resposta.status
+        )
       );
     }
 
@@ -1135,23 +848,18 @@ async function(index) {
   const jogo =
     jogosDisponiveis[index];
 
-  if (!jogo) {
-    return;
-  }
+  if (!jogo) return;
 
-  jogoSelecionado =
-    jogo;
+  jogoSelecionado = jogo;
 
   if ($("homeTeam")) {
     $("homeTeam").value =
-      jogo.homeTeam ||
-      "Casa";
+      jogo.homeTeam || "Casa";
   }
 
   if ($("awayTeam")) {
     $("awayTeam").value =
-      jogo.awayTeam ||
-      "Visitante";
+      jogo.awayTeam || "Visitante";
   }
 
   setInput(
@@ -1169,39 +877,15 @@ async function(index) {
     jogo.awayGoals ?? 0
   );
 
-  setInput(
-    "homeShots",
-    0
-  );
-
-  setInput(
-    "awayShots",
-    0
-  );
-
-  setInput(
-    "homeSot",
-    0
-  );
-
-  setInput(
-    "awaySot",
-    0
-  );
-
-  setInput(
-    "homeCorners",
-    0
-  );
-
-  setInput(
-    "awayCorners",
-    0
-  );
+  setInput("homeShots", 0);
+  setInput("awayShots", 0);
+  setInput("homeSot", 0);
+  setInput("awaySot", 0);
+  setInput("homeCorners", 0);
+  setInput("awayCorners", 0);
 
   if ($("modeLabel")) {
-    $("modeLabel").textContent =
-      "LIVE";
+    $("modeLabel").textContent = "LIVE";
   }
 
   renderJogos();
@@ -1212,7 +896,25 @@ async function(index) {
   );
 };
 
-async function atualizarJogos() {
+async function atualizarJogos(forcar = false) {
+  const agora = Date.now();
+
+  if (buscandoJogos) {
+    return;
+  }
+
+  if (
+    !forcar &&
+    agora - ultimaAtualizacaoJogos <
+      MIN_INTERVAL_LIVE &&
+    jogosDisponiveis.length
+  ) {
+    renderJogos();
+    return;
+  }
+
+  buscandoJogos = true;
+
   try {
     if ($("refreshBtn")) {
       $("refreshBtn").textContent =
@@ -1226,15 +928,15 @@ async function atualizarJogos() {
       await fetch(
         "/api/jogos",
         {
-          cache:
-            "no-store"
+          cache: "no-store"
         }
       );
 
     if (!resposta.ok) {
       throw new Error(
-        "HTTP " +
-        resposta.status
+        mensagemErroHttp(
+          resposta.status
+        )
       );
     }
 
@@ -1248,10 +950,14 @@ async function atualizarJogos() {
         ? dados.jogos
         : [];
 
+    ultimaAtualizacaoJogos =
+      Date.now();
+
     renderJogos();
 
     if (
-      jogosDisponiveis.length
+      jogosDisponiveis.length &&
+      !jogoSelecionado
     ) {
       await selecionarJogo(0);
     }
@@ -1268,6 +974,8 @@ async function atualizarJogos() {
     );
 
   } finally {
+    buscandoJogos = false;
+
     if ($("refreshBtn")) {
       $("refreshBtn").textContent =
         "Atualizar";
@@ -1283,17 +991,12 @@ async function atualizarJogos() {
 ===================================================== */
 
 function criarPainelPreLive() {
-  if ($("preLiveBox")) {
-    return;
-  }
+  if ($("preLiveBox")) return;
 
   const box =
-    document.createElement(
-      "section"
-    );
+    document.createElement("section");
 
-  box.id =
-    "preLiveBox";
+  box.id = "preLiveBox";
 
   box.style.cssText = `
     display:none;
@@ -1306,16 +1009,13 @@ function criarPainelPreLive() {
   `;
 
   box.innerHTML = `
-
     <div style="
       display:flex;
       justify-content:space-between;
       align-items:center;
       margin-bottom:15px;
     ">
-
       <div>
-
         <div style="
           color:#55a7ff;
           font-size:13px;
@@ -1331,50 +1031,35 @@ function criarPainelPreLive() {
         ">
           📊 PRÉ-LIVE
         </div>
-
       </div>
 
       <span
         id="preLiveCount"
-        style="
-          color:#9eb0c7;
-        "
+        style="color:#9eb0c7;"
       >
         0 jogos
       </span>
-
     </div>
 
     <div id="preLiveList">
-
-      <div style="
-        color:#9eb0c7;
-      ">
+      <div style="color:#9eb0c7;">
         Carregando análises...
       </div>
-
     </div>
   `;
 
   const live =
     $("liveGamesBox");
 
-  if (
-    live?.parentNode
-  ) {
+  if (live?.parentNode) {
     live.parentNode.insertBefore(
       box,
       live.nextSibling
     );
   } else {
-    document.body
-      .appendChild(box);
+    document.body.appendChild(box);
   }
 }
-
-/* =====================================================
-   BUSCA DA ANÁLISE — MOSTRA ERRO REAL
-===================================================== */
 
 async function buscarAnaliseCompleta(
   fixtureId
@@ -1389,60 +1074,43 @@ async function buscarAnaliseCompleta(
     );
   }
 
+  const resposta =
+    await fetch(
+      `/api/analise-prelive?id=${encodeURIComponent(fixtureId)}`,
+      {
+        cache: "no-store"
+      }
+    );
+
+  let dados = null;
+
   try {
-    const resposta =
-      await fetch(
-        `/api/analise-prelive?id=${encodeURIComponent(fixtureId)}`,
-        {
-          cache:
-            "no-store"
-        }
-      );
+    dados = await resposta.json();
+  } catch (_) {}
 
-    let dados = null;
+  if (!resposta.ok) {
+    const mensagem =
+      resposta.status === 429
+        ? "Limite da API atingido. Aguarde a cota liberar."
+        : dados?.detalhe ||
+          dados?.erro ||
+          mensagemErroHttp(
+            resposta.status
+          );
 
-    try {
-      dados =
-        await resposta.json();
-    } catch (erroJson) {
-      console.error(
-        "Resposta não era JSON:",
-        erroJson
-      );
-    }
-
-    if (!resposta.ok) {
-      const mensagem =
-        dados?.detalhe ||
-        dados?.erro ||
-        `HTTP ${resposta.status}`;
-
-      throw new Error(
-        mensagem
-      );
-    }
-
-    if (!dados) {
-      throw new Error(
-        "A API respondeu sem dados."
-      );
-    }
-
-    analiseCache.set(
-      fixtureId,
-      dados
+    throw new Error(
+      typeof mensagem === "string"
+        ? mensagem
+        : JSON.stringify(mensagem)
     );
-
-    return dados;
-
-  } catch (erro) {
-    console.error(
-      "Erro análise pré-live:",
-      erro
-    );
-
-    throw erro;
   }
+
+  analiseCache.set(
+    fixtureId,
+    dados
+  );
+
+  return dados;
 }
 
 window.analisarPreLive =
@@ -1450,9 +1118,7 @@ async function(index) {
   const jogo =
     jogosPreLive[index];
 
-  if (!jogo) {
-    return;
-  }
+  if (!jogo) return;
 
   const container =
     document.getElementById(
@@ -1470,90 +1136,41 @@ async function(index) {
     `;
   }
 
-  let analise;
-
   try {
-    analise =
+    const analise =
       await buscarAnaliseCompleta(
         jogo.fixtureId
       );
 
-  } catch (erro) {
-    if (container) {
-      container.innerHTML = `
-        <div style="
-          color:#ef9a9a;
-          padding:12px 0;
-          line-height:1.5;
-        ">
+    const mercados =
+      Array.isArray(
+        analise.mercados
+      )
+        ? analise.mercados
+        : [];
 
-          <b>
-            Erro na análise:
-          </b>
+    if (!container) return;
 
-          <br>
-
-          ${escapeHtml(
-            erro.message ||
-            "Erro desconhecido"
-          )}
-
-          <br><br>
-
-          <small style="
-            color:#9eb0c7;
-          ">
-            Fixture ID:
-            ${escapeHtml(
-              jogo.fixtureId
-            )}
-          </small>
-
-        </div>
-      `;
-    }
-
-    return;
-  }
-
-  const mercados =
-    Array.isArray(
-      analise.mercados
-    )
-      ? analise.mercados
-      : [];
-
-  if (container) {
     container.innerHTML = `
-
       <div style="
         display:grid;
         grid-template-columns:repeat(3,1fr);
         gap:7px;
         margin-top:12px;
       ">
-
         <div style="
           background:#102135;
           padding:10px;
           border-radius:12px;
           text-align:center;
         ">
-
-          <small style="
-            color:#8fa5bf;
-          ">
+          <small style="color:#8fa5bf;">
             Casa
           </small>
-
           <br>
-
-          <b style="
-            color:white;
-          ">
+          <b style="color:white;">
             ${analise.probabilidades?.casa ?? 0}%
           </b>
-
         </div>
 
         <div style="
@@ -1562,21 +1179,13 @@ async function(index) {
           border-radius:12px;
           text-align:center;
         ">
-
-          <small style="
-            color:#8fa5bf;
-          ">
+          <small style="color:#8fa5bf;">
             Empate
           </small>
-
           <br>
-
-          <b style="
-            color:white;
-          ">
+          <b style="color:white;">
             ${analise.probabilidades?.empate ?? 0}%
           </b>
-
         </div>
 
         <div style="
@@ -1585,23 +1194,14 @@ async function(index) {
           border-radius:12px;
           text-align:center;
         ">
-
-          <small style="
-            color:#8fa5bf;
-          ">
+          <small style="color:#8fa5bf;">
             Visitante
           </small>
-
           <br>
-
-          <b style="
-            color:white;
-          ">
+          <b style="color:white;">
             ${analise.probabilidades?.visitante ?? 0}%
           </b>
-
         </div>
-
       </div>
 
       <div style="
@@ -1609,65 +1209,32 @@ async function(index) {
         color:#dbe7f4;
         line-height:1.6;
       ">
-
         <b>Over 1.5:</b>
         ${analise.probabilidades?.over15 ?? 0}%
-
         <br>
 
         <b>Over 2.5:</b>
         ${analise.probabilidades?.over25 ?? 0}%
-
         <br>
 
         <b>Ambas marcam:</b>
         ${analise.probabilidades?.btts ?? 0}%
-
-        ${
-          analise.prediction?.winner
-            ? `
-              <br>
-              <b>Favorito API:</b>
-              ${escapeHtml(
-                analise.prediction.winner
-              )}
-            `
-            : ""
-        }
-
-        ${
-          analise.prediction?.advice
-            ? `
-              <br>
-              <b>Leitura:</b>
-              ${escapeHtml(
-                analise.prediction.advice
-              )}
-            `
-            : ""
-        }
-
       </div>
 
       <div style="
         margin-top:14px;
       ">
-
         ${
           mercados.length
             ? mercados.slice(0, 6).map(
                 mercado => `
-
                   <div style="
                     background:#081421;
                     padding:11px;
                     border-radius:12px;
                     margin-bottom:7px;
                   ">
-
-                    <b style="
-                      color:white;
-                    ">
+                    <b style="color:white;">
                       ${escapeHtml(
                         mercado.mercado
                       )}
@@ -1679,7 +1246,6 @@ async function(index) {
                       color:#9eb0c7;
                       font-size:13px;
                     ">
-
                       Probabilidade:
                       ${mercado.probabilidade}%
 
@@ -1695,7 +1261,6 @@ async function(index) {
                           ? `• Valor ${mercado.value > 0 ? "+" : ""}${mercado.value}%`
                           : ""
                       }
-
                     </span>
 
                     <br>
@@ -1717,22 +1282,45 @@ async function(index) {
                         mercado.classificacao
                       )}
                     </strong>
-
                   </div>
                 `
               ).join("")
             : `
-              <div style="
-                color:#9eb0c7;
-              ">
-                Nenhum mercado disponível
-                para esta partida.
+              <div style="color:#9eb0c7;">
+                Nenhum mercado disponível.
               </div>
             `
         }
-
       </div>
     `;
+
+  } catch (erro) {
+    if (container) {
+      container.innerHTML = `
+        <div style="
+          color:#ef9a9a;
+          padding:12px 0;
+          line-height:1.5;
+        ">
+          <b>Erro na análise:</b>
+          <br>
+
+          ${escapeHtml(
+            erro.message ||
+            "Erro desconhecido"
+          )}
+
+          <br><br>
+
+          <small style="color:#9eb0c7;">
+            Fixture ID:
+            ${escapeHtml(
+              jogo.fixtureId
+            )}
+          </small>
+        </div>
+      `;
+    }
   }
 };
 
@@ -1742,9 +1330,7 @@ function renderPreLive() {
   const lista =
     $("preLiveList");
 
-  if (!lista) {
-    return;
-  }
+  if (!lista) return;
 
   if ($("preLiveCount")) {
     $("preLiveCount").textContent =
@@ -1757,9 +1343,7 @@ function renderPreLive() {
 
   if (!jogosPreLive.length) {
     lista.innerHTML = `
-      <div style="
-        color:#9eb0c7;
-      ">
+      <div style="color:#9eb0c7;">
         Nenhuma partida pré-live encontrada.
       </div>
     `;
@@ -1769,11 +1353,7 @@ function renderPreLive() {
 
   lista.innerHTML =
     jogosPreLive.map(
-      (
-        jogo,
-        index
-      ) => `
-
+      (jogo, index) => `
         <div style="
           background:#091625;
           border:1px solid #263d59;
@@ -1781,24 +1361,13 @@ function renderPreLive() {
           padding:15px;
           margin-bottom:13px;
         ">
-
           <div style="
             color:#8fa5bf;
             font-size:12px;
           ">
-
-            ${escapeHtml(
-              jogo.league ||
-              "Competição"
-            )}
-
+            ${escapeHtml(jogo.league || "Competição")}
             •
-
-            ${escapeHtml(
-              jogo.country ||
-              ""
-            )}
-
+            ${escapeHtml(jogo.country || "")}
           </div>
 
           <div style="
@@ -1810,34 +1379,19 @@ function renderPreLive() {
             font-size:17px;
             font-weight:800;
           ">
-
             <span>
-              ${escapeHtml(
-                jogo.homeTeam
-              )}
+              ${escapeHtml(jogo.homeTeam)}
             </span>
 
-            <span>
-              ×
-            </span>
+            <span>×</span>
 
-            <span style="
-              text-align:right;
-            ">
-              ${escapeHtml(
-                jogo.awayTeam
-              )}
+            <span style="text-align:right;">
+              ${escapeHtml(jogo.awayTeam)}
             </span>
-
           </div>
 
           <button
-            onclick="
-              analisarPreLive(
-                ${index}
-              )
-            "
-
+            onclick="analisarPreLive(${index})"
             style="
               width:100%;
               margin-top:13px;
@@ -1855,21 +1409,38 @@ function renderPreLive() {
           <div
             id="analise-${jogo.fixtureId}"
           ></div>
-
         </div>
       `
     ).join("");
 }
 
-async function carregarPreLive() {
+async function carregarPreLive(
+  forcar = false
+) {
+  const agora = Date.now();
+
+  if (buscandoPreLive) {
+    return;
+  }
+
+  if (
+    !forcar &&
+    agora - ultimaAtualizacaoPreLive <
+      MIN_INTERVAL_PRELIVE &&
+    jogosPreLive.length
+  ) {
+    renderPreLive();
+    return;
+  }
+
+  buscandoPreLive = true;
+
   try {
     criarPainelPreLive();
 
     if ($("preLiveList")) {
       $("preLiveList").innerHTML = `
-        <div style="
-          color:#9eb0c7;
-        ">
+        <div style="color:#9eb0c7;">
           Buscando jogos pré-live...
         </div>
       `;
@@ -1879,15 +1450,15 @@ async function carregarPreLive() {
       await fetch(
         "/api/prelive",
         {
-          cache:
-            "no-store"
+          cache: "no-store"
         }
       );
 
     if (!resposta.ok) {
       throw new Error(
-        "HTTP " +
-        resposta.status
+        mensagemErroHttp(
+          resposta.status
+        )
       );
     }
 
@@ -1901,6 +1472,9 @@ async function carregarPreLive() {
         ? dados.jogos
         : [];
 
+    ultimaAtualizacaoPreLive =
+      Date.now();
+
     renderPreLive();
 
   } catch (erro) {
@@ -1913,15 +1487,17 @@ async function carregarPreLive() {
       $("preLiveList").innerHTML = `
         <div style="
           color:#ef9a9a;
+          line-height:1.5;
         ">
-          Não foi possível carregar
-          o PRÉ-LIVE:
           ${escapeHtml(
             erro.message
           )}
         </div>
       `;
     }
+
+  } finally {
+    buscandoPreLive = false;
   }
 }
 
@@ -1948,26 +1524,21 @@ $("refreshBtn")
   ?.addEventListener(
     "click",
     () => {
-      if (
-        modoAtual ===
-        "prelive"
-      ) {
-        carregarPreLive();
+      if (modoAtual === "prelive") {
+        carregarPreLive(true);
       } else {
-        atualizarJogos();
+        atualizarJogos(true);
       }
     }
   );
 
-ids.forEach(
-  id => {
-    $(id)
-      ?.addEventListener(
-        "change",
-        renderBuilder
-      );
-  }
-);
+ids.forEach(id => {
+  $(id)
+    ?.addEventListener(
+      "change",
+      renderBuilder
+    );
+});
 
 /* =====================================================
    INICIALIZAÇÃO
@@ -1980,9 +1551,13 @@ criarPainelPreLive();
 renderBuilder();
 analyze();
 
+/*
+  Apenas UMA atualização automática
+  quando o app abre.
+*/
 window.addEventListener(
   "load",
   () => {
-    atualizarJogos();
+    atualizarJogos(false);
   }
 );
