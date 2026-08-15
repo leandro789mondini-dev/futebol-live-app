@@ -491,7 +491,7 @@ function atualizarHorario() {
 }
 
 /* =====================================================
-   CONSTRUTOR DE MÚLTIPLAS EXISTENTE
+   CONSTRUTOR DE MÚLTIPLAS
 ===================================================== */
 
 function renderBuilder() {
@@ -1372,6 +1372,10 @@ function criarPainelPreLive() {
   }
 }
 
+/* =====================================================
+   BUSCA DA ANÁLISE — MOSTRA ERRO REAL
+===================================================== */
+
 async function buscarAnaliseCompleta(
   fixtureId
 ) {
@@ -1388,19 +1392,41 @@ async function buscarAnaliseCompleta(
   try {
     const resposta =
       await fetch(
-        `/api/analise-prelive?id=${fixtureId}`,
+        `/api/analise-prelive?id=${encodeURIComponent(fixtureId)}`,
         {
           cache:
             "no-store"
         }
       );
 
-    if (!resposta.ok) {
-      return null;
+    let dados = null;
+
+    try {
+      dados =
+        await resposta.json();
+    } catch (erroJson) {
+      console.error(
+        "Resposta não era JSON:",
+        erroJson
+      );
     }
 
-    const dados =
-      await resposta.json();
+    if (!resposta.ok) {
+      const mensagem =
+        dados?.detalhe ||
+        dados?.erro ||
+        `HTTP ${resposta.status}`;
+
+      throw new Error(
+        mensagem
+      );
+    }
+
+    if (!dados) {
+      throw new Error(
+        "A API respondeu sem dados."
+      );
+    }
 
     analiseCache.set(
       fixtureId,
@@ -1415,7 +1441,7 @@ async function buscarAnaliseCompleta(
       erro
     );
 
-    return null;
+    throw erro;
   }
 }
 
@@ -1444,19 +1470,45 @@ async function(index) {
     `;
   }
 
-  const analise =
-    await buscarAnaliseCompleta(
-      jogo.fixtureId
-    );
+  let analise;
 
-  if (!analise) {
+  try {
+    analise =
+      await buscarAnaliseCompleta(
+        jogo.fixtureId
+      );
+
+  } catch (erro) {
     if (container) {
       container.innerHTML = `
         <div style="
           color:#ef9a9a;
+          padding:12px 0;
+          line-height:1.5;
         ">
-          Não foi possível obter
-          análise detalhada.
+
+          <b>
+            Erro na análise:
+          </b>
+
+          <br>
+
+          ${escapeHtml(
+            erro.message ||
+            "Erro desconhecido"
+          )}
+
+          <br><br>
+
+          <small style="
+            color:#9eb0c7;
+          ">
+            Fixture ID:
+            ${escapeHtml(
+              jogo.fixtureId
+            )}
+          </small>
+
         </div>
       `;
     }
@@ -1487,15 +1539,21 @@ async function(index) {
           border-radius:12px;
           text-align:center;
         ">
-          <small style="color:#8fa5bf;">
+
+          <small style="
+            color:#8fa5bf;
+          ">
             Casa
           </small>
 
           <br>
 
-          <b style="color:white;">
+          <b style="
+            color:white;
+          ">
             ${analise.probabilidades?.casa ?? 0}%
           </b>
+
         </div>
 
         <div style="
@@ -1504,15 +1562,21 @@ async function(index) {
           border-radius:12px;
           text-align:center;
         ">
-          <small style="color:#8fa5bf;">
+
+          <small style="
+            color:#8fa5bf;
+          ">
             Empate
           </small>
 
           <br>
 
-          <b style="color:white;">
+          <b style="
+            color:white;
+          ">
             ${analise.probabilidades?.empate ?? 0}%
           </b>
+
         </div>
 
         <div style="
@@ -1521,15 +1585,21 @@ async function(index) {
           border-radius:12px;
           text-align:center;
         ">
-          <small style="color:#8fa5bf;">
+
+          <small style="
+            color:#8fa5bf;
+          ">
             Visitante
           </small>
 
           <br>
 
-          <b style="color:white;">
+          <b style="
+            color:white;
+          ">
             ${analise.probabilidades?.visitante ?? 0}%
           </b>
+
         </div>
 
       </div>
@@ -1539,13 +1609,6 @@ async function(index) {
         color:#dbe7f4;
         line-height:1.6;
       ">
-
-        <b>Forma:</b>
-        ${analise.forma?.home ?? 0}%
-        ×
-        ${analise.forma?.away ?? 0}%
-
-        <br>
 
         <b>Over 1.5:</b>
         ${analise.probabilidades?.over15 ?? 0}%
@@ -1560,72 +1623,113 @@ async function(index) {
         <b>Ambas marcam:</b>
         ${analise.probabilidades?.btts ?? 0}%
 
+        ${
+          analise.prediction?.winner
+            ? `
+              <br>
+              <b>Favorito API:</b>
+              ${escapeHtml(
+                analise.prediction.winner
+              )}
+            `
+            : ""
+        }
+
+        ${
+          analise.prediction?.advice
+            ? `
+              <br>
+              <b>Leitura:</b>
+              ${escapeHtml(
+                analise.prediction.advice
+              )}
+            `
+            : ""
+        }
+
       </div>
 
       <div style="
         margin-top:14px;
       ">
 
-        ${mercados.slice(0,4).map(
-          mercado => `
+        ${
+          mercados.length
+            ? mercados.slice(0, 6).map(
+                mercado => `
 
-            <div style="
-              background:#081421;
-              padding:11px;
-              border-radius:12px;
-              margin-bottom:7px;
-            ">
+                  <div style="
+                    background:#081421;
+                    padding:11px;
+                    border-radius:12px;
+                    margin-bottom:7px;
+                  ">
 
-              <b style="color:white;">
-                ${escapeHtml(
-                  mercado.mercado
-                )}
-              </b>
+                    <b style="
+                      color:white;
+                    ">
+                      ${escapeHtml(
+                        mercado.mercado
+                      )}
+                    </b>
 
-              <br>
+                    <br>
 
-              <span style="
+                    <span style="
+                      color:#9eb0c7;
+                      font-size:13px;
+                    ">
+
+                      Probabilidade:
+                      ${mercado.probabilidade}%
+
+                      ${
+                        mercado.odd
+                          ? `• Odd ${Number(mercado.odd).toFixed(2)}`
+                          : "• Sem odd"
+                      }
+
+                      ${
+                        mercado.value !== null &&
+                        mercado.value !== undefined
+                          ? `• Valor ${mercado.value > 0 ? "+" : ""}${mercado.value}%`
+                          : ""
+                      }
+
+                    </span>
+
+                    <br>
+
+                    <strong style="
+                      color:${
+                        mercado.classificacao === "VALOR FORTE"
+                          ? "#22c55e"
+                          : mercado.classificacao === "VALOR"
+                          ? "#4ade80"
+                          : mercado.classificacao === "NEUTRO"
+                          ? "#f59e0b"
+                          : mercado.classificacao === "SEM ODD"
+                          ? "#8fa5bf"
+                          : "#ef4444"
+                      };
+                    ">
+                      ${escapeHtml(
+                        mercado.classificacao
+                      )}
+                    </strong>
+
+                  </div>
+                `
+              ).join("")
+            : `
+              <div style="
                 color:#9eb0c7;
-                font-size:13px;
               ">
-                Probabilidade:
-                ${mercado.probabilidade}%
-
-                ${
-                  mercado.odd
-                    ? `• Odd ${Number(mercado.odd).toFixed(2)}`
-                    : ""
-                }
-
-                ${
-                  mercado.value !== null &&
-                  mercado.value !== undefined
-                    ? `• Valor ${mercado.value > 0 ? "+" : ""}${mercado.value}%`
-                    : ""
-                }
-              </span>
-
-              <br>
-
-              <strong style="
-                color:${
-                  mercado.classificacao === "VALOR FORTE"
-                    ? "#22c55e"
-                    : mercado.classificacao === "VALOR"
-                    ? "#4ade80"
-                    : mercado.classificacao === "NEUTRO"
-                    ? "#f59e0b"
-                    : "#ef4444"
-                };
-              ">
-                ${escapeHtml(
-                  mercado.classificacao
-                )}
-              </strong>
-
-            </div>
-          `
-        ).join("")}
+                Nenhum mercado disponível
+                para esta partida.
+              </div>
+            `
+        }
 
       </div>
     `;
@@ -1682,6 +1786,7 @@ function renderPreLive() {
             color:#8fa5bf;
             font-size:12px;
           ">
+
             ${escapeHtml(
               jogo.league ||
               "Competição"
@@ -1693,6 +1798,7 @@ function renderPreLive() {
               jogo.country ||
               ""
             )}
+
           </div>
 
           <div style="
