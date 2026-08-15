@@ -1,4 +1,4 @@
-const $ = id => document.getElementById(id);
+const $ = (id) => document.getElementById(id);
 
 const ids = [
   "minute",
@@ -21,19 +21,17 @@ const ids = [
 ];
 
 let ticket = [];
-
 let jogosDisponiveis = [];
 let jogoSelecionado = null;
 
 let jogosPreLive = [];
-
 let modoAtual = "live";
 
 const analiseCache = new Map();
 
-/* =========================================================
+/* =====================================================
    UTILIDADES
-========================================================= */
+===================================================== */
 
 function n(id) {
   return Number($(id)?.value || 0);
@@ -42,15 +40,15 @@ function n(id) {
 function setInput(id, value) {
   const el = $(id);
 
-  if (!el) return;
-
-  el.value = value ?? 0;
+  if (el) {
+    el.value = value ?? 0;
+  }
 }
 
-function clamp(v, a = 0, b = 100) {
+function clamp(v, min = 0, max = 100) {
   return Math.max(
-    a,
-    Math.min(b, Number(v) || 0)
+    min,
+    Math.min(max, Number(v) || 0)
   );
 }
 
@@ -68,40 +66,6 @@ function brl(v) {
   );
 }
 
-function numeroPercentual(v) {
-  if (
-    v === null ||
-    v === undefined
-  ) {
-    return 0;
-  }
-
-  if (
-    typeof v === "string"
-  ) {
-    return (
-      Number(
-        v.replace("%", "")
-      ) || 0
-    );
-  }
-
-  return Number(v) || 0;
-}
-
-function fmtOdd(v) {
-  const n = Number(v);
-
-  if (
-    !Number.isFinite(n) ||
-    n <= 1
-  ) {
-    return "—";
-  }
-
-  return n.toFixed(2);
-}
-
 function escapeHtml(texto) {
   return String(texto ?? "")
     .replaceAll("&", "&amp;")
@@ -111,43 +75,9 @@ function escapeHtml(texto) {
     .replaceAll("'", "&#039;");
 }
 
-function corProbabilidade(v) {
-  v = Number(v) || 0;
-
-  if (v >= 65) {
-    return "#22c55e";
-  }
-
-  if (v >= 45) {
-    return "#f59e0b";
-  }
-
-  return "#ef4444";
-}
-
-function corClassificacao(valor) {
-  if (valor === "VALOR FORTE") {
-    return "#22c55e";
-  }
-
-  if (valor === "VALOR") {
-    return "#4ade80";
-  }
-
-  if (valor === "NEUTRO") {
-    return "#f59e0b";
-  }
-
-  if (valor === "EVITAR") {
-    return "#ef4444";
-  }
-
-  return "#8fa5bf";
-}
-
-/* =========================================================
+/* =====================================================
    ANÁLISE AO VIVO
-========================================================= */
+===================================================== */
 
 function metrics() {
   const minute =
@@ -182,20 +112,17 @@ function metrics() {
       ? (sot / shots) * 100
       : 0;
 
-  const goalPressure =
+  const pressure =
     clamp(
       pace * 0.42 +
       targetRate * 0.42 +
-      Math.min(
-        sot * 4,
-        25
-      )
+      Math.min(sot * 4, 25)
     );
 
   const over25 =
     clamp(
       totalGoals * 24 +
-      goalPressure * 0.62 +
+      pressure * 0.62 +
       (
         minute > 65
           ? 8
@@ -215,7 +142,7 @@ function metrics() {
           ? 24
           : 0
       ) +
-      goalPressure * 0.48 +
+      pressure * 0.48 +
       (
         totalGoals >= 2
           ? 8
@@ -236,22 +163,18 @@ function metrics() {
   const homeStrength =
     clamp(
       50 +
-
       (
         n("homeSot") -
         n("awaySot")
       ) * 7 +
-
       (
         n("homeShots") -
         n("awayShots")
       ) * 2 +
-
       (
         n("homeCorners") -
         n("awayCorners")
       ) * 1.5 +
-
       (
         n("homeGoals") -
         n("awayGoals")
@@ -264,7 +187,7 @@ function metrics() {
     shots,
     sot,
     corners,
-    goalPressure,
+    pressure,
     over25,
     btts,
     projectedCorners,
@@ -308,7 +231,7 @@ function signalCard(
     cls
   ] = status(score);
 
-  const oddNumber =
+  const o =
     Number(odd || 0);
 
   return `
@@ -342,7 +265,7 @@ function signalCard(
         class="ghost full"
 
         ${
-          oddNumber <= 1
+          o <= 1
             ? "disabled"
             : ""
         }
@@ -353,13 +276,13 @@ function signalCard(
             "'",
             "\\'"
           )}',
-          ${oddNumber}
+          ${o}
         )"
       >
 
         ${
-          oddNumber > 1
-            ? `Adicionar @ ${oddNumber.toFixed(2)}`
+          o > 1
+            ? `Adicionar @ ${o.toFixed(2)}`
             : "Odd indisponível"
         }
 
@@ -382,4 +305,1578 @@ function analyze() {
     $("awayTeam")
       ?.value
       .trim() ||
-    "
+    "Visitante";
+
+  const temStats =
+    m.shots > 0 ||
+    m.sot > 0 ||
+    m.corners > 0;
+
+  if (!temStats) {
+    if ($("analysisText")) {
+      $("analysisText").innerHTML = `
+        <b>
+          ${escapeHtml(home)}
+          ${n("homeGoals")}
+          x
+          ${n("awayGoals")}
+          ${escapeHtml(away)}
+        </b>
+
+        <br>
+
+        Minuto:
+        ${n("minute")}'
+
+        <br><br>
+
+        <span class="muted">
+          Aguardando estatísticas detalhadas.
+        </span>
+      `;
+    }
+
+    if ($("signals")) {
+      $("signals").innerHTML = "";
+    }
+
+    renderBuilder();
+    atualizarHorario();
+
+    return;
+  }
+
+  const sinais = [
+    signalCard(
+      "Mais de 2.5 gols",
+      m.over25,
+
+      `${m.shots} finalizações,
+       ${m.sot} no alvo e
+       ${m.totalGoals} gols até
+       ${m.minute}'.`,
+
+      n("oddOver25"),
+      "over25"
+    ),
+
+    signalCard(
+      "Ambas marcam",
+      m.btts,
+
+      `${escapeHtml(home)}:
+       ${n("homeSot")} no alvo.
+       ${escapeHtml(away)}:
+       ${n("awaySot")} no alvo.`,
+
+      n("oddBtts"),
+      "btts"
+    ),
+
+    signalCard(
+      "Mais de 8.5 escanteios",
+      m.cornerIndex,
+
+      `${m.corners} escanteios.
+       Projeção aproximada:
+       ${m.projectedCorners.toFixed(1)}.`,
+
+      n("oddCorners"),
+      "corners"
+    ),
+
+    signalCard(
+      `${home} vence`,
+      m.homeStrength,
+
+      "Índice baseado em placar e estatísticas ao vivo.",
+
+      n("oddHome"),
+      "home"
+    ),
+
+    signalCard(
+      "Empate",
+
+      clamp(
+        100 -
+        Math.abs(
+          m.homeStrength - 50
+        ) * 2 -
+        Math.abs(
+          n("homeGoals") -
+          n("awayGoals")
+        ) * 18
+      ),
+
+      "Índice baseado no equilíbrio da partida.",
+
+      n("oddDraw"),
+      "draw"
+    ),
+
+    signalCard(
+      `${away} vence`,
+      m.awayStrength,
+
+      "Índice baseado em placar e estatísticas ao vivo.",
+
+      n("oddAway"),
+      "away"
+    )
+  ];
+
+  if ($("signals")) {
+    $("signals").innerHTML =
+      sinais.join("");
+  }
+
+  if ($("analysisText")) {
+    $("analysisText").innerHTML = `
+
+      <b>Finalizações:</b>
+      ${n("homeShots")}
+      ×
+      ${n("awayShots")}
+
+      <br>
+
+      <b>No alvo:</b>
+      ${n("homeSot")}
+      ×
+      ${n("awaySot")}
+
+      <br>
+
+      <b>Escanteios:</b>
+      ${n("homeCorners")}
+      ×
+      ${n("awayCorners")}
+
+      <br>
+
+      <b>Over 2.5:</b>
+      ${pct(m.over25)}
+
+      <br>
+
+      <b>BTTS:</b>
+      ${pct(m.btts)}
+
+      <br><br>
+
+      <span class="muted">
+        Indicadores são estimativas.
+        Não representam garantia de resultado.
+      </span>
+    `;
+  }
+
+  renderBuilder();
+  atualizarHorario();
+}
+
+function atualizarHorario() {
+  if ($("lastUpdate")) {
+    $("lastUpdate").textContent =
+      "Atualizado " +
+      new Date().toLocaleTimeString(
+        "pt-BR",
+        {
+          hour: "2-digit",
+          minute: "2-digit"
+        }
+      );
+  }
+}
+
+/* =====================================================
+   CONSTRUTOR DE MÚLTIPLAS EXISTENTE
+===================================================== */
+
+function renderBuilder() {
+  if (!$("builderMarkets")) {
+    return;
+  }
+
+  const home =
+    $("homeTeam")
+      ?.value
+      .trim() ||
+    "Casa";
+
+  const away =
+    $("awayTeam")
+      ?.value
+      .trim() ||
+    "Visitante";
+
+  const mercados = [
+    [
+      "home",
+      `${home} vence`,
+      n("oddHome")
+    ],
+
+    [
+      "draw",
+      "Empate",
+      n("oddDraw")
+    ],
+
+    [
+      "away",
+      `${away} vence`,
+      n("oddAway")
+    ],
+
+    [
+      "over25",
+      "Mais de 2.5 gols",
+      n("oddOver25")
+    ],
+
+    [
+      "btts",
+      "Ambas marcam",
+      n("oddBtts")
+    ],
+
+    [
+      "corners",
+      "Mais de 8.5 escanteios",
+      n("oddCorners")
+    ]
+  ];
+
+  $("builderMarkets").innerHTML =
+    mercados.map(
+      ([
+        key,
+        name,
+        odd
+      ]) => `
+
+        <div class="market-row">
+
+          <span>
+
+            ${escapeHtml(name)}
+
+            <br>
+
+            <small class="muted">
+
+              ${
+                odd > 1
+                  ? `@ ${odd.toFixed(2)}`
+                  : "Odd indisponível"
+              }
+
+            </small>
+
+          </span>
+
+          <button
+            ${
+              odd <= 1
+                ? "disabled"
+                : ""
+            }
+
+            onclick="addToTicket(
+              '${key}',
+              '${String(name).replaceAll(
+                "'",
+                "\\'"
+              )}',
+              ${odd}
+            )"
+          >
+            +
+          </button>
+
+        </div>
+      `
+    ).join("");
+}
+
+window.addToTicket =
+function(
+  key,
+  name,
+  odd
+) {
+  odd =
+    Number(odd);
+
+  if (
+    !Number.isFinite(odd) ||
+    odd <= 1
+  ) {
+    return;
+  }
+
+  if (
+    !ticket.find(
+      item =>
+        item.key === key
+    )
+  ) {
+    ticket.push({
+      key,
+      name,
+      odd
+    });
+  }
+
+  renderTicket();
+};
+
+function renderTicket() {
+  const total =
+    ticket.reduce(
+      (
+        acumulado,
+        item
+      ) =>
+        acumulado *
+        item.odd,
+
+      1
+    );
+
+  if ($("ticketCount")) {
+    $("ticketCount").textContent =
+      ticket.length;
+  }
+
+  if ($("ticketOdd")) {
+    $("ticketOdd").textContent =
+      total.toFixed(2);
+  }
+
+  if ($("ticketReturn")) {
+    $("ticketReturn").textContent =
+      brl(
+        10 * total
+      );
+  }
+}
+
+/* =====================================================
+   BOTÕES AO VIVO / PRÉ-LIVE
+===================================================== */
+
+function criarMenuModos() {
+  if ($("modeSwitcher")) {
+    return;
+  }
+
+  const box =
+    document.createElement(
+      "div"
+    );
+
+  box.id =
+    "modeSwitcher";
+
+  box.style.cssText = `
+    max-width:1100px;
+    margin:18px auto;
+    padding:8px;
+    display:flex;
+    gap:8px;
+    background:#081421;
+    border:1px solid #29415f;
+    border-radius:18px;
+  `;
+
+  box.innerHTML = `
+    <button
+      id="btnLiveMode"
+
+      style="
+        flex:1;
+        padding:13px;
+        border:0;
+        border-radius:13px;
+        font-weight:800;
+        background:#2d8cff;
+        color:white;
+      "
+    >
+      🔴 AO VIVO
+    </button>
+
+    <button
+      id="btnPreLiveMode"
+
+      style="
+        flex:1;
+        padding:13px;
+        border:0;
+        border-radius:13px;
+        font-weight:800;
+        background:#102135;
+        color:#a9bad0;
+      "
+    >
+      📊 PRÉ-LIVE
+    </button>
+  `;
+
+  const main =
+    document.querySelector("main") ||
+    document.body;
+
+  main.prepend(box);
+
+  $("btnLiveMode")
+    ?.addEventListener(
+      "click",
+      () =>
+        mudarModo("live")
+    );
+
+  $("btnPreLiveMode")
+    ?.addEventListener(
+      "click",
+      () =>
+        mudarModo("prelive")
+    );
+}
+
+function mudarModo(modo) {
+  modoAtual = modo;
+
+  const liveBox =
+    $("liveGamesBox");
+
+  const preBox =
+    $("preLiveBox");
+
+  const dadosPartida =
+    $("homeTeam")
+      ?.closest("section");
+
+  if (modo === "live") {
+    if (liveBox) {
+      liveBox.style.display =
+        "block";
+    }
+
+    if (preBox) {
+      preBox.style.display =
+        "none";
+    }
+
+    if (dadosPartida) {
+      dadosPartida.style.display =
+        "";
+    }
+
+    if ($("btnLiveMode")) {
+      $("btnLiveMode")
+        .style.background =
+        "#2d8cff";
+
+      $("btnLiveMode")
+        .style.color =
+        "white";
+    }
+
+    if ($("btnPreLiveMode")) {
+      $("btnPreLiveMode")
+        .style.background =
+        "#102135";
+
+      $("btnPreLiveMode")
+        .style.color =
+        "#a9bad0";
+    }
+
+    if ($("modeLabel")) {
+      $("modeLabel")
+        .textContent =
+        "LIVE";
+    }
+
+    return;
+  }
+
+  if (liveBox) {
+    liveBox.style.display =
+      "none";
+  }
+
+  if (dadosPartida) {
+    dadosPartida.style.display =
+      "none";
+  }
+
+  criarPainelPreLive();
+
+  if (preBox) {
+    preBox.style.display =
+      "block";
+  }
+
+  if ($("btnLiveMode")) {
+    $("btnLiveMode")
+      .style.background =
+      "#102135";
+
+    $("btnLiveMode")
+      .style.color =
+      "#a9bad0";
+  }
+
+  if ($("btnPreLiveMode")) {
+    $("btnPreLiveMode")
+      .style.background =
+      "#2d8cff";
+
+    $("btnPreLiveMode")
+      .style.color =
+      "white";
+  }
+
+  if ($("modeLabel")) {
+    $("modeLabel")
+      .textContent =
+      "PRÉ-LIVE";
+  }
+
+  carregarPreLive();
+}
+
+/* =====================================================
+   PAINEL AO VIVO
+===================================================== */
+
+function criarPainelJogos() {
+  if ($("liveGamesBox")) {
+    return;
+  }
+
+  const box =
+    document.createElement(
+      "section"
+    );
+
+  box.id =
+    "liveGamesBox";
+
+  box.style.cssText = `
+    margin:20px auto;
+    padding:18px;
+    max-width:1100px;
+    background:#0d1b2d;
+    border:1px solid #29415f;
+    border-radius:22px;
+  `;
+
+  box.innerHTML = `
+
+    <div style="
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      margin-bottom:15px;
+    ">
+
+      <div>
+
+        <div style="
+          color:#55a7ff;
+          font-size:13px;
+          font-weight:800;
+        ">
+          PARTIDAS
+        </div>
+
+        <div style="
+          color:white;
+          font-size:24px;
+          font-weight:800;
+        ">
+          ⚽ Jogos ao vivo
+        </div>
+
+      </div>
+
+      <span
+        id="liveGamesCount"
+        style="
+          color:#9eb0c7;
+        "
+      >
+        0 jogos
+      </span>
+
+    </div>
+
+    <div id="liveGamesList">
+
+      <div style="
+        color:#9eb0c7;
+      ">
+        Carregando...
+      </div>
+
+    </div>
+  `;
+
+  const referencia =
+    $("homeTeam")
+      ?.closest("section");
+
+  if (
+    referencia?.parentNode
+  ) {
+    referencia.parentNode
+      .insertBefore(
+        box,
+        referencia
+      );
+  } else {
+    document.body
+      .appendChild(box);
+  }
+}
+
+function renderJogos() {
+  criarPainelJogos();
+
+  const lista =
+    $("liveGamesList");
+
+  if (!lista) {
+    return;
+  }
+
+  if ($("liveGamesCount")) {
+    $("liveGamesCount").textContent =
+      `${jogosDisponiveis.length} jogo${
+        jogosDisponiveis.length === 1
+          ? ""
+          : "s"
+      }`;
+  }
+
+  if (
+    !jogosDisponiveis.length
+  ) {
+    lista.innerHTML = `
+      <div style="color:#9eb0c7;">
+        Nenhum jogo encontrado.
+      </div>
+    `;
+
+    return;
+  }
+
+  lista.innerHTML =
+    jogosDisponiveis.map(
+      (
+        jogo,
+        index
+      ) => `
+
+        <button
+          onclick="
+            selecionarJogo(
+              ${index}
+            )
+          "
+
+          style="
+            width:100%;
+            padding:14px;
+            margin-bottom:10px;
+            background:#091625;
+            color:white;
+            border:1px solid #263d59;
+            border-radius:15px;
+            text-align:left;
+          "
+        >
+
+          <div style="
+            color:#8fa5bf;
+            font-size:12px;
+          ">
+
+            ${escapeHtml(
+              jogo.league ||
+              "Competição"
+            )}
+
+            •
+
+            ${
+              jogo.minute
+                ? `${jogo.minute}'`
+                : escapeHtml(
+                    jogo.status ||
+                    ""
+                  )
+            }
+
+          </div>
+
+          <div style="
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+            gap:8px;
+            margin-top:7px;
+            font-size:16px;
+            font-weight:700;
+          ">
+
+            <span>
+              ${escapeHtml(
+                jogo.homeTeam
+              )}
+            </span>
+
+            <strong>
+              ${jogo.homeGoals}
+              ×
+              ${jogo.awayGoals}
+            </strong>
+
+            <span style="
+              text-align:right;
+            ">
+              ${escapeHtml(
+                jogo.awayTeam
+              )}
+            </span>
+
+          </div>
+
+        </button>
+      `
+    ).join("");
+}
+
+async function carregarEstatisticas(
+  fixtureId
+) {
+  if (!fixtureId) {
+    return;
+  }
+
+  try {
+    const resposta =
+      await fetch(
+        `/api/estatisticas?id=${fixtureId}`,
+        {
+          cache:
+            "no-store"
+        }
+      );
+
+    if (!resposta.ok) {
+      throw new Error(
+        "HTTP " +
+        resposta.status
+      );
+    }
+
+    const dados =
+      await resposta.json();
+
+    setInput(
+      "homeShots",
+      dados.homeShots ?? 0
+    );
+
+    setInput(
+      "awayShots",
+      dados.awayShots ?? 0
+    );
+
+    setInput(
+      "homeSot",
+      dados.homeSot ?? 0
+    );
+
+    setInput(
+      "awaySot",
+      dados.awaySot ?? 0
+    );
+
+    setInput(
+      "homeCorners",
+      dados.homeCorners ?? 0
+    );
+
+    setInput(
+      "awayCorners",
+      dados.awayCorners ?? 0
+    );
+
+    analyze();
+
+  } catch (erro) {
+    console.error(
+      "Erro estatísticas:",
+      erro
+    );
+  }
+}
+
+window.selecionarJogo =
+async function(index) {
+  const jogo =
+    jogosDisponiveis[index];
+
+  if (!jogo) {
+    return;
+  }
+
+  jogoSelecionado =
+    jogo;
+
+  if ($("homeTeam")) {
+    $("homeTeam").value =
+      jogo.homeTeam ||
+      "Casa";
+  }
+
+  if ($("awayTeam")) {
+    $("awayTeam").value =
+      jogo.awayTeam ||
+      "Visitante";
+  }
+
+  setInput(
+    "minute",
+    jogo.minute || 0
+  );
+
+  setInput(
+    "homeGoals",
+    jogo.homeGoals ?? 0
+  );
+
+  setInput(
+    "awayGoals",
+    jogo.awayGoals ?? 0
+  );
+
+  setInput(
+    "homeShots",
+    0
+  );
+
+  setInput(
+    "awayShots",
+    0
+  );
+
+  setInput(
+    "homeSot",
+    0
+  );
+
+  setInput(
+    "awaySot",
+    0
+  );
+
+  setInput(
+    "homeCorners",
+    0
+  );
+
+  setInput(
+    "awayCorners",
+    0
+  );
+
+  if ($("modeLabel")) {
+    $("modeLabel").textContent =
+      "LIVE";
+  }
+
+  renderJogos();
+  analyze();
+
+  await carregarEstatisticas(
+    jogo.fixtureId
+  );
+};
+
+async function atualizarJogos() {
+  try {
+    if ($("refreshBtn")) {
+      $("refreshBtn").textContent =
+        "Buscando...";
+
+      $("refreshBtn").disabled =
+        true;
+    }
+
+    const resposta =
+      await fetch(
+        "/api/jogos",
+        {
+          cache:
+            "no-store"
+        }
+      );
+
+    if (!resposta.ok) {
+      throw new Error(
+        "HTTP " +
+        resposta.status
+      );
+    }
+
+    const dados =
+      await resposta.json();
+
+    jogosDisponiveis =
+      Array.isArray(
+        dados.jogos
+      )
+        ? dados.jogos
+        : [];
+
+    renderJogos();
+
+    if (
+      jogosDisponiveis.length
+    ) {
+      await selecionarJogo(0);
+    }
+
+  } catch (erro) {
+    console.error(
+      "Erro jogos:",
+      erro
+    );
+
+    alert(
+      "Não foi possível carregar os jogos: " +
+      erro.message
+    );
+
+  } finally {
+    if ($("refreshBtn")) {
+      $("refreshBtn").textContent =
+        "Atualizar";
+
+      $("refreshBtn").disabled =
+        false;
+    }
+  }
+}
+
+/* =====================================================
+   PRÉ-LIVE
+===================================================== */
+
+function criarPainelPreLive() {
+  if ($("preLiveBox")) {
+    return;
+  }
+
+  const box =
+    document.createElement(
+      "section"
+    );
+
+  box.id =
+    "preLiveBox";
+
+  box.style.cssText = `
+    display:none;
+    margin:20px auto;
+    padding:18px;
+    max-width:1100px;
+    background:#0d1b2d;
+    border:1px solid #29415f;
+    border-radius:22px;
+  `;
+
+  box.innerHTML = `
+
+    <div style="
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      margin-bottom:15px;
+    ">
+
+      <div>
+
+        <div style="
+          color:#55a7ff;
+          font-size:13px;
+          font-weight:800;
+        ">
+          ANÁLISE PRÉ-JOGO
+        </div>
+
+        <div style="
+          color:white;
+          font-size:24px;
+          font-weight:800;
+        ">
+          📊 PRÉ-LIVE
+        </div>
+
+      </div>
+
+      <span
+        id="preLiveCount"
+        style="
+          color:#9eb0c7;
+        "
+      >
+        0 jogos
+      </span>
+
+    </div>
+
+    <div id="preLiveList">
+
+      <div style="
+        color:#9eb0c7;
+      ">
+        Carregando análises...
+      </div>
+
+    </div>
+  `;
+
+  const live =
+    $("liveGamesBox");
+
+  if (
+    live?.parentNode
+  ) {
+    live.parentNode.insertBefore(
+      box,
+      live.nextSibling
+    );
+  } else {
+    document.body
+      .appendChild(box);
+  }
+}
+
+async function buscarAnaliseCompleta(
+  fixtureId
+) {
+  if (
+    analiseCache.has(
+      fixtureId
+    )
+  ) {
+    return analiseCache.get(
+      fixtureId
+    );
+  }
+
+  try {
+    const resposta =
+      await fetch(
+        `/api/analise-prelive?id=${fixtureId}`,
+        {
+          cache:
+            "no-store"
+        }
+      );
+
+    if (!resposta.ok) {
+      return null;
+    }
+
+    const dados =
+      await resposta.json();
+
+    analiseCache.set(
+      fixtureId,
+      dados
+    );
+
+    return dados;
+
+  } catch (erro) {
+    console.error(
+      "Erro análise pré-live:",
+      erro
+    );
+
+    return null;
+  }
+}
+
+window.analisarPreLive =
+async function(index) {
+  const jogo =
+    jogosPreLive[index];
+
+  if (!jogo) {
+    return;
+  }
+
+  const container =
+    document.getElementById(
+      `analise-${jogo.fixtureId}`
+    );
+
+  if (container) {
+    container.innerHTML = `
+      <div style="
+        color:#9eb0c7;
+        padding:10px 0;
+      ">
+        Analisando partida...
+      </div>
+    `;
+  }
+
+  const analise =
+    await buscarAnaliseCompleta(
+      jogo.fixtureId
+    );
+
+  if (!analise) {
+    if (container) {
+      container.innerHTML = `
+        <div style="
+          color:#ef9a9a;
+        ">
+          Não foi possível obter
+          análise detalhada.
+        </div>
+      `;
+    }
+
+    return;
+  }
+
+  const mercados =
+    Array.isArray(
+      analise.mercados
+    )
+      ? analise.mercados
+      : [];
+
+  if (container) {
+    container.innerHTML = `
+
+      <div style="
+        display:grid;
+        grid-template-columns:repeat(3,1fr);
+        gap:7px;
+        margin-top:12px;
+      ">
+
+        <div style="
+          background:#102135;
+          padding:10px;
+          border-radius:12px;
+          text-align:center;
+        ">
+          <small style="color:#8fa5bf;">
+            Casa
+          </small>
+
+          <br>
+
+          <b style="color:white;">
+            ${analise.probabilidades?.casa ?? 0}%
+          </b>
+        </div>
+
+        <div style="
+          background:#102135;
+          padding:10px;
+          border-radius:12px;
+          text-align:center;
+        ">
+          <small style="color:#8fa5bf;">
+            Empate
+          </small>
+
+          <br>
+
+          <b style="color:white;">
+            ${analise.probabilidades?.empate ?? 0}%
+          </b>
+        </div>
+
+        <div style="
+          background:#102135;
+          padding:10px;
+          border-radius:12px;
+          text-align:center;
+        ">
+          <small style="color:#8fa5bf;">
+            Visitante
+          </small>
+
+          <br>
+
+          <b style="color:white;">
+            ${analise.probabilidades?.visitante ?? 0}%
+          </b>
+        </div>
+
+      </div>
+
+      <div style="
+        margin-top:13px;
+        color:#dbe7f4;
+        line-height:1.6;
+      ">
+
+        <b>Forma:</b>
+        ${analise.forma?.home ?? 0}%
+        ×
+        ${analise.forma?.away ?? 0}%
+
+        <br>
+
+        <b>Over 1.5:</b>
+        ${analise.probabilidades?.over15 ?? 0}%
+
+        <br>
+
+        <b>Over 2.5:</b>
+        ${analise.probabilidades?.over25 ?? 0}%
+
+        <br>
+
+        <b>Ambas marcam:</b>
+        ${analise.probabilidades?.btts ?? 0}%
+
+      </div>
+
+      <div style="
+        margin-top:14px;
+      ">
+
+        ${mercados.slice(0,4).map(
+          mercado => `
+
+            <div style="
+              background:#081421;
+              padding:11px;
+              border-radius:12px;
+              margin-bottom:7px;
+            ">
+
+              <b style="color:white;">
+                ${escapeHtml(
+                  mercado.mercado
+                )}
+              </b>
+
+              <br>
+
+              <span style="
+                color:#9eb0c7;
+                font-size:13px;
+              ">
+                Probabilidade:
+                ${mercado.probabilidade}%
+
+                ${
+                  mercado.odd
+                    ? `• Odd ${Number(mercado.odd).toFixed(2)}`
+                    : ""
+                }
+
+                ${
+                  mercado.value !== null &&
+                  mercado.value !== undefined
+                    ? `• Valor ${mercado.value > 0 ? "+" : ""}${mercado.value}%`
+                    : ""
+                }
+              </span>
+
+              <br>
+
+              <strong style="
+                color:${
+                  mercado.classificacao === "VALOR FORTE"
+                    ? "#22c55e"
+                    : mercado.classificacao === "VALOR"
+                    ? "#4ade80"
+                    : mercado.classificacao === "NEUTRO"
+                    ? "#f59e0b"
+                    : "#ef4444"
+                };
+              ">
+                ${escapeHtml(
+                  mercado.classificacao
+                )}
+              </strong>
+
+            </div>
+          `
+        ).join("")}
+
+      </div>
+    `;
+  }
+};
+
+function renderPreLive() {
+  criarPainelPreLive();
+
+  const lista =
+    $("preLiveList");
+
+  if (!lista) {
+    return;
+  }
+
+  if ($("preLiveCount")) {
+    $("preLiveCount").textContent =
+      `${jogosPreLive.length} jogo${
+        jogosPreLive.length === 1
+          ? ""
+          : "s"
+      }`;
+  }
+
+  if (!jogosPreLive.length) {
+    lista.innerHTML = `
+      <div style="
+        color:#9eb0c7;
+      ">
+        Nenhuma partida pré-live encontrada.
+      </div>
+    `;
+
+    return;
+  }
+
+  lista.innerHTML =
+    jogosPreLive.map(
+      (
+        jogo,
+        index
+      ) => `
+
+        <div style="
+          background:#091625;
+          border:1px solid #263d59;
+          border-radius:16px;
+          padding:15px;
+          margin-bottom:13px;
+        ">
+
+          <div style="
+            color:#8fa5bf;
+            font-size:12px;
+          ">
+            ${escapeHtml(
+              jogo.league ||
+              "Competição"
+            )}
+
+            •
+
+            ${escapeHtml(
+              jogo.country ||
+              ""
+            )}
+          </div>
+
+          <div style="
+            display:flex;
+            justify-content:space-between;
+            gap:8px;
+            margin-top:9px;
+            color:white;
+            font-size:17px;
+            font-weight:800;
+          ">
+
+            <span>
+              ${escapeHtml(
+                jogo.homeTeam
+              )}
+            </span>
+
+            <span>
+              ×
+            </span>
+
+            <span style="
+              text-align:right;
+            ">
+              ${escapeHtml(
+                jogo.awayTeam
+              )}
+            </span>
+
+          </div>
+
+          <button
+            onclick="
+              analisarPreLive(
+                ${index}
+              )
+            "
+
+            style="
+              width:100%;
+              margin-top:13px;
+              padding:12px;
+              border:0;
+              border-radius:12px;
+              background:#2d8cff;
+              color:white;
+              font-weight:800;
+            "
+          >
+            Analisar pré-jogo
+          </button>
+
+          <div
+            id="analise-${jogo.fixtureId}"
+          ></div>
+
+        </div>
+      `
+    ).join("");
+}
+
+async function carregarPreLive() {
+  try {
+    criarPainelPreLive();
+
+    if ($("preLiveList")) {
+      $("preLiveList").innerHTML = `
+        <div style="
+          color:#9eb0c7;
+        ">
+          Buscando jogos pré-live...
+        </div>
+      `;
+    }
+
+    const resposta =
+      await fetch(
+        "/api/prelive",
+        {
+          cache:
+            "no-store"
+        }
+      );
+
+    if (!resposta.ok) {
+      throw new Error(
+        "HTTP " +
+        resposta.status
+      );
+    }
+
+    const dados =
+      await resposta.json();
+
+    jogosPreLive =
+      Array.isArray(
+        dados.jogos
+      )
+        ? dados.jogos
+        : [];
+
+    renderPreLive();
+
+  } catch (erro) {
+    console.error(
+      "Erro pré-live:",
+      erro
+    );
+
+    if ($("preLiveList")) {
+      $("preLiveList").innerHTML = `
+        <div style="
+          color:#ef9a9a;
+        ">
+          Não foi possível carregar
+          o PRÉ-LIVE:
+          ${escapeHtml(
+            erro.message
+          )}
+        </div>
+      `;
+    }
+  }
+}
+
+/* =====================================================
+   EVENTOS
+===================================================== */
+
+$("clearTicket")
+  ?.addEventListener(
+    "click",
+    () => {
+      ticket = [];
+      renderTicket();
+    }
+  );
+
+$("analyzeBtn")
+  ?.addEventListener(
+    "click",
+    analyze
+  );
+
+$("refreshBtn")
+  ?.addEventListener(
+    "click",
+    () => {
+      if (
+        modoAtual ===
+        "prelive"
+      ) {
+        carregarPreLive();
+      } else {
+        atualizarJogos();
+      }
+    }
+  );
+
+ids.forEach(
+  id => {
+    $(id)
+      ?.addEventListener(
+        "change",
+        renderBuilder
+      );
+  }
+);
+
+/* =====================================================
+   INICIALIZAÇÃO
+===================================================== */
+
+criarMenuModos();
+criarPainelJogos();
+criarPainelPreLive();
+
+renderBuilder();
+analyze();
+
+window.addEventListener(
+  "load",
+  () => {
+    atualizarJogos();
+  }
+);
