@@ -21,138 +21,23 @@ export default async function handler(req, res) {
 
     async function consultar(url) {
       try {
-        const r = await fetch(url, { headers });
+        const resposta = await fetch(url, {
+          headers
+        });
 
-        const dados = await r.json();
+        const dados = await resposta.json();
 
-        if (!r.ok) {
+        if (!resposta.ok) {
           return null;
         }
 
         return dados;
-      } catch (e) {
+
+      } catch (erro) {
+        console.error("Erro ao consultar API:", erro);
         return null;
       }
     }
-
-    /*
-      ========================================
-      1. DADOS DA PARTIDA
-      ========================================
-    */
-
-    const fixtureDados = await consultar(
-      `https://v3.football.api-sports.io/fixtures?id=${fixtureId}`
-    );
-
-    const fixture =
-      fixtureDados?.response?.[0] || null;
-
-    if (!fixture) {
-      return res.status(404).json({
-        erro: "Partida não encontrada"
-      });
-    }
-
-    const homeId =
-      fixture.teams?.home?.id;
-
-    const awayId =
-      fixture.teams?.away?.id;
-
-    const leagueId =
-      fixture.league?.id;
-
-    const season =
-      fixture.league?.season;
-
-    /*
-      ========================================
-      2. PREDICTIONS
-      ========================================
-    */
-
-    const predictionDados =
-      await consultar(
-        `https://v3.football.api-sports.io/predictions?fixture=${fixtureId}`
-      );
-
-    const prediction =
-      predictionDados?.response?.[0] || null;
-
-    /*
-      ========================================
-      3. ODDS
-      ========================================
-    */
-
-    const oddsDados =
-      await consultar(
-        `https://v3.football.api-sports.io/odds?fixture=${fixtureId}`
-      );
-
-    /*
-      ========================================
-      4. FORMA / ESTATÍSTICAS DA TEMPORADA
-      ========================================
-    */
-
-    let homeStats = null;
-    let awayStats = null;
-
-    if (
-      homeId &&
-      leagueId &&
-      season
-    ) {
-      const d =
-        await consultar(
-          `https://v3.football.api-sports.io/teams/statistics?league=${leagueId}&season=${season}&team=${homeId}`
-        );
-
-      homeStats =
-        d?.response || null;
-    }
-
-    if (
-      awayId &&
-      leagueId &&
-      season
-    ) {
-      const d =
-        await consultar(
-          `https://v3.football.api-sports.io/teams/statistics?league=${leagueId}&season=${season}&team=${awayId}`
-        );
-
-      awayStats =
-        d?.response || null;
-    }
-
-    /*
-      ========================================
-      5. HISTÓRICO H2H
-      ========================================
-    */
-
-    let h2h = [];
-
-    if (homeId && awayId) {
-      const d =
-        await consultar(
-          `https://v3.football.api-sports.io/fixtures/headtohead?h2h=${homeId}-${awayId}&last=5`
-        );
-
-      h2h =
-        Array.isArray(d?.response)
-          ? d.response
-          : [];
-    }
-
-    /*
-      ========================================
-      FUNÇÕES AUXILIARES
-      ========================================
-    */
 
     function numero(v) {
       const x = Number(v);
@@ -170,9 +55,7 @@ export default async function handler(req, res) {
         return 0;
       }
 
-      if (
-        typeof v === "string"
-      ) {
+      if (typeof v === "string") {
         return (
           Number(
             v.replace("%", "")
@@ -183,166 +66,92 @@ export default async function handler(req, res) {
       return numero(v);
     }
 
-    function mediaGols(stats) {
-      const feitos =
-        numero(
-          stats?.goals?.for?.average?.total
-        );
+    /*
+      ==================================
+      1. PARTIDA
+      ==================================
+    */
 
-      const sofridos =
-        numero(
-          stats?.goals?.against?.average?.total
-        );
+    const fixtureDados =
+      await consultar(
+        `https://v3.football.api-sports.io/fixtures?id=${fixtureId}`
+      );
 
-      return {
-        feitos,
-        sofridos
-      };
-    }
+    const fixture =
+      fixtureDados?.response?.[0];
 
-    function formaScore(stats) {
-      const forma =
-        String(
-          stats?.form || ""
-        )
-          .toUpperCase()
-          .slice(-5);
-
-      if (!forma) {
-        return 50;
-      }
-
-      let pontos = 0;
-      let jogos = 0;
-
-      for (
-        const resultado of forma
-      ) {
-        if (
-          !["W","D","L"].includes(resultado)
-        ) {
-          continue;
-        }
-
-        jogos++;
-
-        if (resultado === "W") {
-          pontos += 3;
-        }
-
-        if (resultado === "D") {
-          pontos += 1;
-        }
-      }
-
-      if (!jogos) {
-        return 50;
-      }
-
-      return (
-        pontos /
-        (jogos * 3)
-      ) * 100;
-    }
-
-    function h2hScore() {
-      if (!h2h.length) {
-        return {
-          home: 50,
-          away: 50
-        };
-      }
-
-      let home = 0;
-      let away = 0;
-
-      for (const jogo of h2h) {
-        const hg =
-          numero(jogo.goals?.home);
-
-        const ag =
-          numero(jogo.goals?.away);
-
-        const casaId =
-          jogo.teams?.home?.id;
-
-        if (hg === ag) {
-          home += 1;
-          away += 1;
-        } else if (
-          (
-            hg > ag &&
-            casaId === homeId
-          ) ||
-          (
-            ag > hg &&
-            casaId !== homeId
-          )
-        ) {
-          home += 3;
-        } else {
-          away += 3;
-        }
-      }
-
-      const total =
-        home + away;
-
-      if (!total) {
-        return {
-          home: 50,
-          away: 50
-        };
-      }
-
-      return {
-        home:
-          (home / total) * 100,
-
-        away:
-          (away / total) * 100
-      };
+    if (!fixture) {
+      return res.status(404).json({
+        erro: "Partida não encontrada"
+      });
     }
 
     /*
-      ========================================
-      ODDS
-      ========================================
+      ==================================
+      2. PREDICTION
+      ==================================
     */
 
+    const predictionDados =
+      await consultar(
+        `https://v3.football.api-sports.io/predictions?fixture=${fixtureId}`
+      );
+
+    const prediction =
+      predictionDados?.response?.[0] || null;
+
+    /*
+      ==================================
+      3. ODDS
+      ==================================
+    */
+
+    const oddsDados =
+      await consultar(
+        `https://v3.football.api-sports.io/odds?fixture=${fixtureId}`
+      );
+
     const registroOdds =
-      oddsDados?.response?.[0];
+      oddsDados?.response?.[0] || null;
 
     const bookmakers =
       registroOdds?.bookmakers || [];
 
-    function procurarMercado(
-      nomes
-    ) {
-      for (
-        const bookmaker of bookmakers
-      ) {
-        for (
-          const bet of bookmaker.bets || []
-        ) {
+    /*
+      ==================================
+      FUNÇÕES PARA ODDS
+      ==================================
+    */
+
+    function procurarMercado(nomes) {
+      for (const bookmaker of bookmakers) {
+        const bets =
+          Array.isArray(bookmaker.bets)
+            ? bookmaker.bets
+            : [];
+
+        for (const bet of bets) {
           const nome =
             String(
               bet.name || ""
             ).toLowerCase();
 
-          if (
-            nomes.some(n =>
+          const encontrou =
+            nomes.some(item =>
               nome.includes(
-                n.toLowerCase()
+                item.toLowerCase()
               )
-            )
-          ) {
+            );
+
+          if (encontrou) {
             return {
               bookmaker:
                 bookmaker.name || "",
 
               values:
-                bet.values || []
+                Array.isArray(bet.values)
+                  ? bet.values
+                  : []
             };
           }
         }
@@ -351,7 +160,7 @@ export default async function handler(req, res) {
       return null;
     }
 
-    function valorOdd(
+    function buscarOdd(
       mercado,
       valores
     ) {
@@ -366,20 +175,27 @@ export default async function handler(req, res) {
         const nome =
           String(
             item.value || ""
-          ).toLowerCase();
-
-        if (
-          valores.some(v =>
-            nome ===
-            v.toLowerCase()
           )
-        ) {
+            .toLowerCase()
+            .trim();
+
+        const encontrou =
+          valores.some(
+            valor =>
+              nome ===
+              valor.toLowerCase().trim()
+          );
+
+        if (encontrou) {
           const odd =
             Number(item.odd);
 
-          return odd > 1
-            ? odd
-            : null;
+          if (
+            Number.isFinite(odd) &&
+            odd > 1
+          ) {
+            return odd;
+          }
         }
       }
 
@@ -414,355 +230,359 @@ export default async function handler(req, res) {
         mercado1x2?.bookmaker ||
         mercadoGols?.bookmaker ||
         mercadoBtts?.bookmaker ||
+        mercadoDupla?.bookmaker ||
         "",
 
       casa:
-        valorOdd(
+        buscarOdd(
           mercado1x2,
           ["Home"]
         ),
 
       empate:
-        valorOdd(
+        buscarOdd(
           mercado1x2,
           ["Draw"]
         ),
 
       visitante:
-        valorOdd(
+        buscarOdd(
           mercado1x2,
           ["Away"]
         ),
 
       over15:
-        valorOdd(
+        buscarOdd(
           mercadoGols,
           ["Over 1.5"]
         ),
 
       over25:
-        valorOdd(
+        buscarOdd(
           mercadoGols,
           ["Over 2.5"]
         ),
 
       over35:
-        valorOdd(
+        buscarOdd(
           mercadoGols,
           ["Over 3.5"]
         ),
 
       bttsSim:
-        valorOdd(
+        buscarOdd(
           mercadoBtts,
           ["Yes"]
         ),
 
       bttsNao:
-        valorOdd(
+        buscarOdd(
           mercadoBtts,
           ["No"]
         ),
 
       casaEmpate:
-        valorOdd(
+        buscarOdd(
           mercadoDupla,
-          ["Home/Draw","1X"]
+          [
+            "Home/Draw",
+            "1X"
+          ]
         ),
 
       empateVisitante:
-        valorOdd(
+        buscarOdd(
           mercadoDupla,
-          ["Draw/Away","X2"]
+          [
+            "Draw/Away",
+            "X2"
+          ]
         )
     };
 
     /*
-      ========================================
-      CÁLCULO DA ANÁLISE
-      ========================================
+      ==================================
+      PROBABILIDADES DA PREDICTION
+      ==================================
     */
 
     const pred =
-      prediction?.predictions;
+      prediction?.predictions || {};
 
-    const predHome =
+    let probCasa =
       percentual(
         pred?.percent?.home
       );
 
-    const predDraw =
+    let probEmpate =
       percentual(
         pred?.percent?.draw
       );
 
-    const predAway =
+    let probVisitante =
       percentual(
         pred?.percent?.away
       );
 
-    const formaHome =
-      formaScore(homeStats);
+    /*
+      Se prediction não vier,
+      evita inventar percentual.
+    */
 
-    const formaAway =
-      formaScore(awayStats);
+    const temProbResultado =
+      probCasa > 0 ||
+      probEmpate > 0 ||
+      probVisitante > 0;
 
-    const golsHome =
-      mediaGols(homeStats);
+    /*
+      ==================================
+      GOLS
+      ==================================
+    */
 
-    const golsAway =
-      mediaGols(awayStats);
+    const goalsHome =
+      pred?.goals?.home || null;
 
-    const h2hCalc =
-      h2hScore();
+    const goalsAway =
+      pred?.goals?.away || null;
 
-    let scoreCasa =
-      predHome * 0.55 +
-      formaHome * 0.25 +
-      h2hCalc.home * 0.20;
-
-    let scoreFora =
-      predAway * 0.55 +
-      formaAway * 0.25 +
-      h2hCalc.away * 0.20;
-
-    let scoreEmpate =
-      predDraw;
-
-    const soma =
-      scoreCasa +
-      scoreEmpate +
-      scoreFora;
-
-    if (soma > 0) {
-      scoreCasa =
-        scoreCasa / soma * 100;
-
-      scoreEmpate =
-        scoreEmpate / soma * 100;
-
-      scoreFora =
-        scoreFora / soma * 100;
-    }
-
-    const mediaTotalGols =
-      (
-        golsHome.feitos +
-        golsHome.sofridos +
-        golsAway.feitos +
-        golsAway.sofridos
-      ) / 2;
-
-    let probOver15 =
-      Math.min(
-        92,
-        Math.max(
-          35,
-          45 +
-          mediaTotalGols * 15
-        )
-      );
-
-    let probOver25 =
-      Math.min(
-        88,
-        Math.max(
-          20,
-          25 +
-          mediaTotalGols * 17
-        )
-      );
-
-    let probBtts =
-      Math.min(
-        85,
-        Math.max(
-          20,
-          (
-            golsHome.feitos +
-            golsAway.feitos +
-            golsHome.sofridos +
-            golsAway.sofridos
-          ) * 12
-        )
+    const underOver =
+      String(
+        pred?.under_over || ""
       );
 
     /*
-      ========================================
-      VALUE
-      ========================================
+      Probabilidades simples de gols.
+      Só usamos quando há prediction.
     */
 
-    function value(prob, odd) {
-      if (!odd || odd <= 1) {
+    let probOver15 = 0;
+    let probOver25 = 0;
+    let probBtts = 0;
+
+    if (prediction) {
+      /*
+        Base conservadora.
+        Não tratamos esses valores
+        como probabilidades "reais".
+      */
+
+      probOver15 = 65;
+      probOver25 = 52;
+      probBtts = 50;
+
+      const texto =
+        underOver.toLowerCase();
+
+      if (
+        texto.includes("+1.5")
+      ) {
+        probOver15 = 75;
+      }
+
+      if (
+        texto.includes("+2.5")
+      ) {
+        probOver25 = 67;
+      }
+
+      if (
+        texto.includes("-2.5")
+      ) {
+        probOver25 = 38;
+      }
+
+      if (
+        texto.includes("+3.5")
+      ) {
+        probOver25 = 78;
+      }
+
+      if (
+        goalsHome &&
+        goalsAway
+      ) {
+        /*
+          Se a API sugere gols
+          para os dois times,
+          BTTS ganha força.
+        */
+
+        probBtts = 62;
+      }
+    }
+
+    /*
+      ==================================
+      VALUE
+      ==================================
+    */
+
+    function calcularValue(
+      prob,
+      odd
+    ) {
+      if (
+        !odd ||
+        odd <= 1 ||
+        !prob
+      ) {
         return null;
       }
 
+      const implicita =
+        100 / odd;
+
       return (
-        prob -
-        100 / odd
+        prob - implicita
       );
     }
 
-    function classificar(v) {
-      if (v === null) {
+    function classificar(
+      valor
+    ) {
+      if (
+        valor === null ||
+        valor === undefined
+      ) {
         return "SEM ODD";
       }
 
-      if (v >= 8) {
+      if (valor >= 8) {
         return "VALOR FORTE";
       }
 
-      if (v >= 3) {
+      if (valor >= 3) {
         return "VALOR";
       }
 
-      if (v >= -3) {
+      if (valor >= -3) {
         return "NEUTRO";
       }
 
       return "EVITAR";
     }
 
-    const mercados = [
-      {
-        mercado: "Casa vence",
-        probabilidade:
-          scoreCasa,
-        odd:
-          odds.casa,
-        value:
-          value(
-            scoreCasa,
-            odds.casa
-          )
-      },
-
-      {
-        mercado: "Empate",
-        probabilidade:
-          scoreEmpate,
-        odd:
-          odds.empate,
-        value:
-          value(
-            scoreEmpate,
-            odds.empate
-          )
-      },
-
-      {
-        mercado: "Visitante vence",
-        probabilidade:
-          scoreFora,
-        odd:
-          odds.visitante,
-        value:
-          value(
-            scoreFora,
-            odds.visitante
-          )
-      },
-
-      {
-        mercado: "Mais de 1.5 gols",
-        probabilidade:
-          probOver15,
-        odd:
-          odds.over15,
-        value:
-          value(
-            probOver15,
-            odds.over15
-          )
-      },
-
-      {
-        mercado: "Mais de 2.5 gols",
-        probabilidade:
-          probOver25,
-        odd:
-          odds.over25,
-        value:
-          value(
-            probOver25,
-            odds.over25
-          )
-      },
-
-      {
-        mercado:
-          "Ambas marcam - Sim",
-        probabilidade:
-          probBtts,
-        odd:
-          odds.bttsSim,
-        value:
-          value(
-            probBtts,
-            odds.bttsSim
-          )
-      },
-
-      {
-        mercado:
-          "Casa ou empate",
-
-        probabilidade:
-          Math.min(
-            95,
-            scoreCasa +
-            scoreEmpate
-          ),
-
-        odd:
-          odds.casaEmpate
-      },
-
-      {
-        mercado:
-          "Empate ou visitante",
-
-        probabilidade:
-          Math.min(
-            95,
-            scoreEmpate +
-            scoreFora
-          ),
-
-        odd:
-          odds.empateVisitante
-      }
-    ];
-
-    mercados.forEach(m => {
-      if (
-        m.value === undefined
-      ) {
-        m.value =
-          value(
-            m.probabilidade,
-            m.odd
-          );
-      }
-
-      m.classificacao =
-        classificar(m.value);
-
-      m.probabilidade =
-        Math.round(
-          m.probabilidade
+    function criarMercado(
+      mercado,
+      probabilidade,
+      odd
+    ) {
+      const value =
+        calcularValue(
+          probabilidade,
+          odd
         );
 
-      if (
-        m.value !== null
-      ) {
-        m.value =
-          Number(
-            m.value.toFixed(1)
-          );
-      }
-    });
+      return {
+        mercado,
+
+        probabilidade:
+          Math.round(
+            probabilidade || 0
+          ),
+
+        odd:
+          odd || null,
+
+        value:
+          value === null
+            ? null
+            : Number(
+                value.toFixed(1)
+              ),
+
+        classificacao:
+          classificar(value)
+      };
+    }
+
+    const mercados = [];
+
+    if (temProbResultado) {
+      mercados.push(
+        criarMercado(
+          "Casa vence",
+          probCasa,
+          odds.casa
+        )
+      );
+
+      mercados.push(
+        criarMercado(
+          "Empate",
+          probEmpate,
+          odds.empate
+        )
+      );
+
+      mercados.push(
+        criarMercado(
+          "Visitante vence",
+          probVisitante,
+          odds.visitante
+        )
+      );
+
+      mercados.push(
+        criarMercado(
+          "Casa ou empate",
+          Math.min(
+            95,
+            probCasa +
+            probEmpate
+          ),
+          odds.casaEmpate
+        )
+      );
+
+      mercados.push(
+        criarMercado(
+          "Empate ou visitante",
+          Math.min(
+            95,
+            probEmpate +
+            probVisitante
+          ),
+          odds.empateVisitante
+        )
+      );
+    }
+
+    if (probOver15 > 0) {
+      mercados.push(
+        criarMercado(
+          "Mais de 1.5 gols",
+          probOver15,
+          odds.over15
+        )
+      );
+    }
+
+    if (probOver25 > 0) {
+      mercados.push(
+        criarMercado(
+          "Mais de 2.5 gols",
+          probOver25,
+          odds.over25
+        )
+      );
+    }
+
+    if (probBtts > 0) {
+      mercados.push(
+        criarMercado(
+          "Ambas marcam - Sim",
+          probBtts,
+          odds.bttsSim
+        )
+      );
+    }
+
+    /*
+      Ordena:
+      mercados com maior value primeiro
+    */
 
     mercados.sort(
       (a, b) =>
@@ -770,79 +590,47 @@ export default async function handler(req, res) {
         (a.value ?? -999)
     );
 
+    /*
+      ==================================
+      RESPOSTA
+      ==================================
+    */
+
     return res.status(200).json({
       fixtureId,
 
       partida: {
         home:
-          fixture.teams?.home?.name,
+          fixture.teams?.home?.name ||
+          "Casa",
 
         away:
-          fixture.teams?.away?.name,
+          fixture.teams?.away?.name ||
+          "Visitante",
 
         league:
-          fixture.league?.name,
+          fixture.league?.name ||
+          "",
 
         country:
-          fixture.league?.country,
+          fixture.league?.country ||
+          "",
 
         kickoff:
-          fixture.fixture?.date
-      },
-
-      forma: {
-        home: Math.round(
-          formaHome
-        ),
-
-        away: Math.round(
-          formaAway
-        )
-      },
-
-      gols: {
-        homeMarcados:
-          golsHome.feitos,
-
-        homeSofridos:
-          golsHome.sofridos,
-
-        awayMarcados:
-          golsAway.feitos,
-
-        awaySofridos:
-          golsAway.sofridos
-      },
-
-      h2h: {
-        jogos:
-          h2h.length,
-
-        home:
-          Math.round(
-            h2hCalc.home
-          ),
-
-        away:
-          Math.round(
-            h2hCalc.away
-          )
+          fixture.fixture?.date ||
+          ""
       },
 
       probabilidades: {
         casa:
-          Math.round(
-            scoreCasa
-          ),
+          Math.round(probCasa),
 
         empate:
-          Math.round(
-            scoreEmpate
-          ),
+          Math.round(probEmpate),
 
         visitante:
           Math.round(
-            scoreFora
+            probVisitante
           ),
 
         over15:
@@ -862,24 +650,40 @@ export default async function handler(req, res) {
       },
 
       prediction: {
+        disponivel:
+          Boolean(prediction),
+
         winner:
-          pred?.winner?.name || "",
+          pred?.winner?.name ||
+          "",
+
+        winnerComment:
+          pred?.winner?.comment ||
+          "",
 
         advice:
-          pred?.advice || "",
+          pred?.advice ||
+          "",
 
-        underOver:
-          pred?.under_over || ""
+        underOver,
+
+        goalsHome,
+        goalsAway
       },
 
-      odds,
+      odds: {
+        disponivel:
+          bookmakers.length > 0,
+
+        ...odds
+      },
 
       mercados
     });
 
   } catch (erro) {
     console.error(
-      "Erro análise pré-live:",
+      "Erro analise-prelive:",
       erro
     );
 
