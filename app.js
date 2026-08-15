@@ -59,7 +59,10 @@ function n(id) {
 
 function setInput(id, value) {
   const el = $(id);
-  if (el) el.value = value ?? 0;
+
+  if (el) {
+    el.value = value ?? 0;
+  }
 }
 
 function clamp(v, min = 0, max = 100) {
@@ -74,10 +77,13 @@ function pct(v) {
 }
 
 function brl(v) {
-  return Number(v || 0).toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL"
-  });
+  return Number(v || 0).toLocaleString(
+    "pt-BR",
+    {
+      style: "currency",
+      currency: "BRL"
+    }
+  );
 }
 
 function escapeHtml(texto) {
@@ -123,11 +129,15 @@ function salvarLocal(chave, data) {
 
 function lerLocal(chave, maxAge) {
   try {
-    const bruto = localStorage.getItem(chave);
+    const bruto =
+      localStorage.getItem(chave);
 
-    if (!bruto) return null;
+    if (!bruto) {
+      return null;
+    }
 
-    const salvo = JSON.parse(bruto);
+    const salvo =
+      JSON.parse(bruto);
 
     if (
       !salvo ||
@@ -138,7 +148,8 @@ function lerLocal(chave, maxAge) {
     }
 
     if (
-      Date.now() - salvo.timestamp >
+      Date.now() -
+        salvo.timestamp >
       maxAge
     ) {
       return null;
@@ -151,33 +162,27 @@ function lerLocal(chave, maxAge) {
   }
 }
 
-function salvarMapaLocal(chave, mapa) {
-  try {
-    const obj = {};
-
-    for (const [k, v] of mapa.entries()) {
-      obj[k] = v;
-    }
-
-    salvarLocal(chave, obj);
-
-  } catch (_) {}
-}
-
 function carregarMapaLocal(
   chave,
   maxAge,
   mapa
 ) {
   const dados =
-    lerLocal(chave, maxAge);
+    lerLocal(
+      chave,
+      maxAge
+    );
 
-  if (!dados) return;
+  if (!dados) {
+    return;
+  }
 
   Object.entries(dados)
-    .forEach(([k, v]) => {
-      mapa.set(k, v);
-    });
+    .forEach(
+      ([k, v]) => {
+        mapa.set(k, v);
+      }
+    );
 }
 
 /* =====================================================
@@ -185,12 +190,17 @@ function carregarMapaLocal(
 ===================================================== */
 
 function criarStatusApi() {
-  if ($("apiStatusBox")) return;
+  if ($("apiStatusBox")) {
+    return;
+  }
 
   const box =
-    document.createElement("div");
+    document.createElement(
+      "div"
+    );
 
-  box.id = "apiStatusBox";
+  box.id =
+    "apiStatusBox";
 
   box.style.cssText = `
     max-width:1100px;
@@ -244,7 +254,9 @@ function criarStatusApi() {
       switcher.nextSibling
     );
   } else {
-    document.body.prepend(box);
+    document.body.prepend(
+      box
+    );
   }
 }
 
@@ -265,7 +277,9 @@ function atualizarStatusApi(
   const quota =
     $("apiQuotaText");
 
-  if (!titulo || !desc) return;
+  if (!titulo || !desc) {
+    return;
+  }
 
   if (tipo === "ok") {
     titulo.textContent =
@@ -457,6 +471,7 @@ function metrics() {
     projectedCorners,
     cornerIndex,
     homeStrength,
+
     awayStrength:
       100 - homeStrength
   };
@@ -464,14 +479,23 @@ function metrics() {
 
 function status(score) {
   if (score >= 72) {
-    return ["BOA", "good"];
+    return [
+      "BOA",
+      "good"
+    ];
   }
 
   if (score >= 55) {
-    return ["AGUARDE", "wait"];
+    return [
+      "AGUARDE",
+      "wait"
+    ];
   }
 
-  return ["EVITAR", "avoid"];
+  return [
+    "EVITAR",
+    "avoid"
+  ];
 }
 
 function signalCard(
@@ -481,16 +505,21 @@ function signalCard(
   odd,
   key
 ) {
-  const [label, cls] =
-    status(score);
+  const [
+    label,
+    cls
+  ] = status(score);
 
   const o =
     Number(odd || 0);
 
   return `
     <div class="signal ${cls}">
+
       <div class="top">
+
         <div>
+
           <div class="market">
             ${escapeHtml(name)}
           </div>
@@ -498,11 +527,13 @@ function signalCard(
           <div class="score">
             ${pct(score)}
           </div>
+
         </div>
 
         <span class="pill ${cls}">
           ${label}
         </span>
+
       </div>
 
       <div class="why">
@@ -511,25 +542,38 @@ function signalCard(
 
       <button
         class="ghost full"
-        ${o <= 1 ? "disabled" : ""}
+
+        ${
+          o <= 1
+            ? "disabled"
+            : ""
+        }
+
         onclick="addToTicket(
           '${key}',
-          '${String(name).replaceAll("'", "\\'")}',
+          '${String(name).replaceAll(
+            "'",
+            "\\'"
+          )}',
           ${o}
         )"
       >
+
         ${
           o > 1
             ? `Adicionar @ ${o.toFixed(2)}`
             : "Odd indisponível"
         }
+
       </button>
+
     </div>
   `;
 }
 
 function analyze() {
-  const m = metrics();
+  const m =
+    metrics();
 
   const home =
     $("homeTeam")
@@ -567,13 +611,15 @@ function analyze() {
         <br><br>
 
         <span class="muted">
-          Aguardando estatísticas detalhadas.
+          Selecione a partida e toque em
+          "Carregar estatísticas desta partida".
         </span>
       `;
     }
 
     if ($("signals")) {
-      $("signals").innerHTML = "";
+      $("signals").innerHTML =
+        "";
     }
 
     renderBuilder();
@@ -670,19 +716,29 @@ function analyze() {
   if ($("analysisText")) {
     $("analysisText").innerHTML = `
       <b>Finalizações:</b>
-      ${n("homeShots")} × ${n("awayShots")}
+      ${n("homeShots")}
+      ×
+      ${n("awayShots")}
+
       <br>
 
       <b>No alvo:</b>
-      ${n("homeSot")} × ${n("awaySot")}
+      ${n("homeSot")}
+      ×
+      ${n("awaySot")}
+
       <br>
 
       <b>Escanteios:</b>
-      ${n("homeCorners")} × ${n("awayCorners")}
+      ${n("homeCorners")}
+      ×
+      ${n("awayCorners")}
+
       <br>
 
       <b>Over 2.5:</b>
       ${pct(m.over25)}
+
       <br>
 
       <b>BTTS:</b>
@@ -779,32 +835,50 @@ function renderBuilder() {
   $("builderMarkets").innerHTML =
     mercados
       .map(
-        ([key, name, odd]) => `
+        ([
+          key,
+          name,
+          odd
+        ]) => `
           <div class="market-row">
+
             <span>
+
               ${escapeHtml(name)}
 
               <br>
 
               <small class="muted">
+
                 ${
                   odd > 1
                     ? `@ ${odd.toFixed(2)}`
                     : "Odd indisponível"
                 }
+
               </small>
+
             </span>
 
             <button
-              ${odd <= 1 ? "disabled" : ""}
+              ${
+                odd <= 1
+                  ? "disabled"
+                  : ""
+              }
+
               onclick="addToTicket(
                 '${key}',
-                '${String(name).replaceAll("'", "\\'")}',
+                '${String(name).replaceAll(
+                  "'",
+                  "\\'"
+                )}',
                 ${odd}
               )"
             >
               +
             </button>
+
           </div>
         `
       )
@@ -907,6 +981,7 @@ function criarMenuModos() {
   box.innerHTML = `
     <button
       id="btnLiveMode"
+
       style="
         flex:1;
         padding:13px;
@@ -922,6 +997,7 @@ function criarMenuModos() {
 
     <button
       id="btnPreLiveMode"
+
       style="
         flex:1;
         padding:13px;
@@ -991,7 +1067,8 @@ function atualizarBotoesModo() {
 }
 
 function mudarModo(modo) {
-  modoAtual = modo;
+  modoAtual =
+    modo;
 
   atualizarBotoesModo();
 
@@ -1027,6 +1104,7 @@ function mudarModo(modo) {
     }
 
     atualizarJogos(false);
+
     return;
   }
 
@@ -1088,7 +1166,9 @@ function criarPainelJogos() {
       align-items:center;
       margin-bottom:15px;
     ">
+
       <div>
+
         <div style="
           color:#55a7ff;
           font-size:13px;
@@ -1104,24 +1184,29 @@ function criarPainelJogos() {
         ">
           ⚽ Jogos ao vivo
         </div>
+
       </div>
 
       <span
         id="liveGamesCount"
+
         style="
           color:#9eb0c7;
         "
       >
         0 jogos
       </span>
+
     </div>
 
     <div id="liveGamesList">
+
       <div style="
         color:#9eb0c7;
       ">
         Aguardando atualização.
       </div>
+
     </div>
   `;
 
@@ -1132,14 +1217,15 @@ function criarPainelJogos() {
   if (
     referencia?.parentNode
   ) {
-    referencia.parentNode.insertBefore(
-      box,
-      referencia
-    );
+    referencia.parentNode
+      .insertBefore(
+        box,
+        referencia
+      );
+
   } else {
-    document.body.appendChild(
-      box
-    );
+    document.body
+      .appendChild(box);
   }
 }
 
@@ -1181,13 +1267,17 @@ function renderJogos() {
   lista.innerHTML =
     jogosDisponiveis
       .map(
-        (jogo, index) => `
+        (
+          jogo,
+          index
+        ) => `
           <button
             onclick="
               selecionarJogo(
                 ${index}
               )
             "
+
             style="
               width:100%;
               padding:14px;
@@ -1199,10 +1289,12 @@ function renderJogos() {
               text-align:left;
             "
           >
+
             <div style="
               color:#8fa5bf;
               font-size:12px;
             ">
+
               ${escapeHtml(
                 jogo.league ||
                 "Competição"
@@ -1218,6 +1310,7 @@ function renderJogos() {
                       ""
                     )
               }
+
             </div>
 
             <div style="
@@ -1229,6 +1322,7 @@ function renderJogos() {
               font-size:16px;
               font-weight:700;
             ">
+
               <span>
                 ${escapeHtml(
                   jogo.homeTeam
@@ -1248,7 +1342,22 @@ function renderJogos() {
                   jogo.awayTeam
                 )}
               </span>
+
             </div>
+
+            <div style="
+              margin-top:10px;
+              padding:9px 10px;
+              background:#102135;
+              border-radius:10px;
+              text-align:center;
+              color:#60a5fa;
+              font-size:13px;
+              font-weight:700;
+            ">
+              Toque para abrir a partida
+            </div>
+
           </button>
         `
       )
@@ -1318,6 +1427,13 @@ async function carregarEstatisticas(
       memoria.data
     );
 
+    atualizarStatusApi(
+      "ok",
+      "Estatísticas reaproveitadas do cache.",
+      null,
+      true
+    );
+
     return;
   }
 
@@ -1344,6 +1460,11 @@ async function carregarEstatisticas(
   }
 
   try {
+    atualizarStatusApi(
+      "carregando",
+      "Buscando estatísticas desta partida..."
+    );
+
     const resposta =
       await fetch(
         `/api/estatisticas?id=${encodeURIComponent(fixtureId)}`,
@@ -1374,12 +1495,13 @@ async function carregarEstatisticas(
 
           atualizarStatusApi(
             "local",
-            "Estatísticas exibidas a partir dos dados salvos."
+            "Cota atingida. Exibindo estatísticas salvas."
           );
+
         } else {
           atualizarStatusApi(
             "limite",
-            "Estatísticas pausadas porque a cota diária terminou."
+            "Não foi possível consultar estatísticas porque a cota terminou."
           );
         }
 
@@ -1423,6 +1545,15 @@ async function carregarEstatisticas(
       dados
     );
 
+    atualizarStatusApi(
+      "ok",
+      "Estatísticas da partida carregadas.",
+      dados?.api || null,
+      Boolean(
+        dados?.cache
+      )
+    );
+
   } catch (erro) {
     console.error(
       "Erro estatísticas:",
@@ -1439,14 +1570,25 @@ async function carregarEstatisticas(
 
       atualizarStatusApi(
         "local",
-        "Falha na API. Usando estatísticas salvas."
+        "Falha na API. Exibindo estatísticas salvas."
+      );
+
+    } else {
+      atualizarStatusApi(
+        "erro",
+        erro.message ||
+        "Erro ao consultar estatísticas."
       );
     }
   }
 }
 
+/* =====================================================
+   SELECIONAR JOGO
+===================================================== */
+
 window.selecionarJogo =
-async function(index) {
+function(index) {
   const jogo =
     jogosDisponiveis[index];
 
@@ -1484,6 +1626,12 @@ async function(index) {
     jogo.awayGoals ?? 0
   );
 
+  /*
+    MUITO IMPORTANTE:
+    aqui NÃO consultamos estatísticas.
+    Apenas limpamos os dados anteriores.
+  */
+
   setInput(
     "homeShots",
     0
@@ -1517,9 +1665,105 @@ async function(index) {
   renderJogos();
   analyze();
 
+  /*
+    Cria botão para consultar estatísticas
+    somente quando o usuário quiser.
+  */
+
+  let botao =
+    $("loadStatsBtn");
+
+  if (!botao) {
+    botao =
+      document.createElement(
+        "button"
+      );
+
+    botao.id =
+      "loadStatsBtn";
+
+    botao.style.cssText = `
+      width:100%;
+      margin-top:12px;
+      padding:14px;
+      border:0;
+      border-radius:12px;
+      background:#2d8cff;
+      color:white;
+      font-weight:800;
+      font-size:15px;
+      cursor:pointer;
+    `;
+
+    const alvo =
+      $("homeTeam")
+        ?.closest("section");
+
+    if (alvo) {
+      alvo.appendChild(
+        botao
+      );
+    }
+  }
+
+  botao.textContent =
+    "📊 Carregar estatísticas desta partida";
+
+  botao.disabled =
+    false;
+
+  botao.onclick =
+    window.buscarStatsJogo;
+
+  $("homeTeam")
+    ?.scrollIntoView({
+      behavior:
+        "smooth",
+
+      block:
+        "center"
+    });
+};
+
+/* =====================================================
+   BUSCAR ESTATÍSTICAS MANUALMENTE
+===================================================== */
+
+window.buscarStatsJogo =
+async function() {
+  if (
+    !jogoSelecionado
+      ?.fixtureId
+  ) {
+    alert(
+      "Selecione uma partida primeiro."
+    );
+
+    return;
+  }
+
+  const botao =
+    $("loadStatsBtn");
+
+  if (botao) {
+    botao.disabled =
+      true;
+
+    botao.textContent =
+      "Buscando estatísticas...";
+  }
+
   await carregarEstatisticas(
-    jogo.fixtureId
+    jogoSelecionado.fixtureId
   );
+
+  if (botao) {
+    botao.disabled =
+      false;
+
+    botao.textContent =
+      "📊 Atualizar estatísticas desta partida";
+  }
 };
 
 /* =====================================================
@@ -1565,10 +1809,12 @@ async function atualizarJogos(
 
   try {
     if ($("refreshBtn")) {
-      $("refreshBtn").textContent =
+      $("refreshBtn")
+        .textContent =
         "Buscando...";
 
-      $("refreshBtn").disabled =
+      $("refreshBtn")
+        .disabled =
         true;
     }
 
@@ -1649,7 +1895,8 @@ async function atualizarJogos(
       LS_LIVE,
       {
         modo:
-          dados?.modo || "",
+          dados?.modo ||
+          "",
 
         jogos:
           jogosDisponiveis
@@ -1658,10 +1905,14 @@ async function atualizarJogos(
 
     atualizarStatusApi(
       "ok",
-      dados?.modo === "LIVE"
+
+      dados?.modo ===
+      "LIVE"
         ? "Partidas ao vivo carregadas."
         : "Jogos do dia carregados.",
+
       dados?.api || null,
+
       Boolean(
         dados?.cache
       )
@@ -1711,10 +1962,12 @@ async function atualizarJogos(
       false;
 
     if ($("refreshBtn")) {
-      $("refreshBtn").textContent =
+      $("refreshBtn")
+        .textContent =
         "Atualizar";
 
-      $("refreshBtn").disabled =
+      $("refreshBtn")
+        .disabled =
         false;
     }
   }
@@ -1754,7 +2007,9 @@ function criarPainelPreLive() {
       align-items:center;
       margin-bottom:15px;
     ">
+
       <div>
+
         <div style="
           color:#55a7ff;
           font-size:13px;
@@ -1770,24 +2025,29 @@ function criarPainelPreLive() {
         ">
           📊 PRÉ-LIVE
         </div>
+
       </div>
 
       <span
         id="preLiveCount"
+
         style="
           color:#9eb0c7;
         "
       >
         0 jogos
       </span>
+
     </div>
 
     <div id="preLiveList">
+
       <div style="
         color:#9eb0c7;
       ">
         Aguardando carregamento.
       </div>
+
     </div>
   `;
 
@@ -1797,14 +2057,15 @@ function criarPainelPreLive() {
   if (
     live?.parentNode
   ) {
-    live.parentNode.insertBefore(
-      box,
-      live.nextSibling
-    );
+    live.parentNode
+      .insertBefore(
+        box,
+        live.nextSibling
+      );
+
   } else {
-    document.body.appendChild(
-      box
-    );
+    document.body
+      .appendChild(box);
   }
 }
 
@@ -1845,7 +2106,10 @@ function renderPreLive() {
   lista.innerHTML =
     jogosPreLive
       .map(
-        (jogo, index) => `
+        (
+          jogo,
+          index
+        ) => `
           <div style="
             background:#091625;
             border:1px solid #263d59;
@@ -1853,10 +2117,12 @@ function renderPreLive() {
             padding:15px;
             margin-bottom:13px;
           ">
+
             <div style="
               color:#8fa5bf;
               font-size:12px;
             ">
+
               ${escapeHtml(
                 jogo.league ||
                 "Competição"
@@ -1868,6 +2134,7 @@ function renderPreLive() {
                 jogo.country ||
                 ""
               )}
+
             </div>
 
             <div style="
@@ -1879,13 +2146,16 @@ function renderPreLive() {
               font-size:17px;
               font-weight:800;
             ">
+
               <span>
                 ${escapeHtml(
                   jogo.homeTeam
                 )}
               </span>
 
-              <span>×</span>
+              <span>
+                ×
+              </span>
 
               <span style="
                 text-align:right;
@@ -1894,6 +2164,7 @@ function renderPreLive() {
                   jogo.awayTeam
                 )}
               </span>
+
             </div>
 
             <button
@@ -1902,6 +2173,7 @@ function renderPreLive() {
                   ${index}
                 )
               "
+
               style="
                 width:100%;
                 margin-top:13px;
@@ -1919,6 +2191,7 @@ function renderPreLive() {
             <div
               id="analise-${jogo.fixtureId}"
             ></div>
+
           </div>
         `
       )
@@ -2086,16 +2359,19 @@ async function carregarPreLive(
         "Falha na API. Exibindo PRÉ-LIVE salvo."
       );
 
-    } else if ($("preLiveList")) {
-      $("preLiveList").innerHTML = `
-        <div style="
-          color:#fca5a5;
-        ">
-          ${escapeHtml(
-            erro.message
-          )}
-        </div>
-      `;
+    } else if (
+      $("preLiveList")
+    ) {
+      $("preLiveList")
+        .innerHTML = `
+          <div style="
+            color:#fca5a5;
+          ">
+            ${escapeHtml(
+              erro.message
+            )}
+          </div>
+        `;
     }
 
   } finally {
@@ -2259,6 +2535,7 @@ async function(index) {
         gap:7px;
         margin-top:12px;
       ">
+
         ${cardProb(
           "Casa",
           analise?.probabilidades?.casa
@@ -2273,6 +2550,7 @@ async function(index) {
           "Visitante",
           analise?.probabilidades?.visitante
         )}
+
       </div>
 
       <div style="
@@ -2280,6 +2558,7 @@ async function(index) {
         color:#dbe7f4;
         line-height:1.7;
       ">
+
         <b>Over 1.5:</b>
         ${analise?.probabilidades?.over15 ?? 0}%
 
@@ -2297,18 +2576,22 @@ async function(index) {
           analise?.prediction?.winner
             ? `
               <br>
+
               <b>Favorito:</b>
+
               ${escapeHtml(
                 analise.prediction.winner
               )}
             `
             : ""
         }
+
       </div>
 
       <div style="
         margin-top:14px;
       ">
+
         ${
           mercados.length
             ? mercados
@@ -2328,6 +2611,7 @@ async function(index) {
               </div>
             `
         }
+
       </div>
     `;
 
@@ -2337,6 +2621,7 @@ async function(index) {
         color:#fca5a5;
         padding:12px 0;
       ">
+
         <b>
           Não foi possível analisar.
         </b>
@@ -2347,6 +2632,7 @@ async function(index) {
           erro.message ||
           "Erro desconhecido"
         )}
+
       </div>
     `;
   }
@@ -2363,6 +2649,7 @@ function cardProb(
       border-radius:12px;
       text-align:center;
     ">
+
       <small style="
         color:#8fa5bf;
       ">
@@ -2374,8 +2661,11 @@ function cardProb(
       <b style="
         color:white;
       ">
-        ${Number(valor || 0)}%
+        ${Number(
+          valor || 0
+        )}%
       </b>
+
     </div>
   `;
 }
@@ -2390,25 +2680,29 @@ function cardMercado(
     mercado.classificacao ===
     "VALOR FORTE"
   ) {
-    cor = "#22c55e";
+    cor =
+      "#22c55e";
 
   } else if (
     mercado.classificacao ===
     "VALOR"
   ) {
-    cor = "#4ade80";
+    cor =
+      "#4ade80";
 
   } else if (
     mercado.classificacao ===
     "NEUTRO"
   ) {
-    cor = "#f59e0b";
+    cor =
+      "#f59e0b";
 
   } else if (
     mercado.classificacao ===
     "EVITAR"
   ) {
-    cor = "#ef4444";
+    cor =
+      "#ef4444";
   }
 
   return `
@@ -2418,6 +2712,7 @@ function cardMercado(
       border-radius:12px;
       margin-bottom:7px;
     ">
+
       <b style="
         color:white;
       ">
@@ -2432,6 +2727,7 @@ function cardMercado(
         color:#9eb0c7;
         font-size:13px;
       ">
+
         Probabilidade:
         ${Number(
           mercado.probabilidade || 0
@@ -2439,16 +2735,23 @@ function cardMercado(
 
         ${
           mercado.odd
-            ? `• Odd ${Number(mercado.odd).toFixed(2)}`
+            ? `• Odd ${Number(
+                mercado.odd
+              ).toFixed(2)}`
             : "• Sem odd"
         }
 
         ${
           mercado.value !== null &&
           mercado.value !== undefined
-            ? `• Valor ${mercado.value > 0 ? "+" : ""}${mercado.value}%`
+            ? `• Valor ${
+                mercado.value > 0
+                  ? "+"
+                  : ""
+              }${mercado.value}%`
             : ""
         }
+
       </span>
 
       <br>
@@ -2461,6 +2764,7 @@ function cardMercado(
           ""
         )}
       </strong>
+
     </div>
   `;
 }
@@ -2474,6 +2778,7 @@ $("clearTicket")
     "click",
     () => {
       ticket = [];
+
       renderTicket();
     }
   );
@@ -2492,9 +2797,14 @@ $("refreshBtn")
         modoAtual ===
         "prelive"
       ) {
-        carregarPreLive(true);
+        carregarPreLive(
+          true
+        );
+
       } else {
-        atualizarJogos(true);
+        atualizarJogos(
+          true
+        );
       }
     }
   );
@@ -2529,8 +2839,8 @@ carregarMapaLocal(
 );
 
 /*
-  Tenta carregar dados salvos imediatamente,
-  antes mesmo de consultar a API.
+  Carrega os últimos jogos salvos
+  sem gastar API.
 */
 
 const liveSalvo =
@@ -2556,6 +2866,10 @@ if (
   );
 }
 
+/*
+  Carrega lista pré-live salva.
+*/
+
 const preLiveSalvo =
   lerLocal(
     LS_PRELIVE,
@@ -2573,12 +2887,19 @@ if (
 }
 
 /*
-  Uma única tentativa automática ao abrir.
+  Apenas UMA tentativa automática
+  de carregar a lista de jogos.
+
+  Importante:
+  não consulta estatísticas
+  automaticamente.
 */
 
 window.addEventListener(
   "load",
   () => {
-    atualizarJogos(false);
+    atualizarJogos(
+      false
+    );
   }
 );
