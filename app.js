@@ -1,26 +1,39 @@
 const $ = id => document.getElementById(id);
 
 const ids = [
-  "minute","homeGoals","awayGoals",
-  "homeShots","awayShots",
-  "homeSot","awaySot",
-  "homeCorners","awayCorners",
-  "homeDanger","awayDanger",
-  "oddHome","oddDraw","oddAway",
-  "oddOver25","oddBtts","oddCorners"
+  "minute",
+  "homeGoals",
+  "awayGoals",
+  "homeShots",
+  "awayShots",
+  "homeSot",
+  "awaySot",
+  "homeCorners",
+  "awayCorners",
+  "homeDanger",
+  "awayDanger",
+  "oddHome",
+  "oddDraw",
+  "oddAway",
+  "oddOver25",
+  "oddBtts",
+  "oddCorners"
 ];
 
 let ticket = [];
+
 let jogosDisponiveis = [];
 let jogoSelecionado = null;
 
 let jogosPreLive = [];
-let modoAtual = "live";
-let multiplaPreLive = [];
 
-/* ================================
-   FUNÇÕES BÁSICAS
-================================ */
+let modoAtual = "live";
+
+const analiseCache = new Map();
+
+/* =========================================================
+   UTILIDADES
+========================================================= */
 
 function n(id) {
   return Number($(id)?.value || 0);
@@ -28,11 +41,17 @@ function n(id) {
 
 function setInput(id, value) {
   const el = $(id);
-  if (el) el.value = value ?? 0;
+
+  if (!el) return;
+
+  el.value = value ?? 0;
 }
 
 function clamp(v, a = 0, b = 100) {
-  return Math.max(a, Math.min(b, v));
+  return Math.max(
+    a,
+    Math.min(b, Number(v) || 0)
+  );
 }
 
 function pct(v) {
@@ -40,85 +59,168 @@ function pct(v) {
 }
 
 function brl(v) {
-  return Number(v || 0).toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL"
-  });
+  return Number(v || 0).toLocaleString(
+    "pt-BR",
+    {
+      style: "currency",
+      currency: "BRL"
+    }
+  );
 }
 
-function percentualNumero(valor) {
-  if (valor === null || valor === undefined) return 0;
-
-  if (typeof valor === "string") {
-    return Number(valor.replace("%", "")) || 0;
+function numeroPercentual(v) {
+  if (
+    v === null ||
+    v === undefined
+  ) {
+    return 0;
   }
 
-  return Number(valor) || 0;
+  if (
+    typeof v === "string"
+  ) {
+    return (
+      Number(
+        v.replace("%", "")
+      ) || 0
+    );
+  }
+
+  return Number(v) || 0;
 }
 
-function probabilidadeImplicita(odd) {
-  odd = Number(odd);
+function fmtOdd(v) {
+  const n = Number(v);
 
-  if (!odd || odd <= 1) return 0;
+  if (
+    !Number.isFinite(n) ||
+    n <= 1
+  ) {
+    return "—";
+  }
 
-  return 100 / odd;
+  return n.toFixed(2);
 }
 
-function vantagem(prob, odd) {
-  return Number(prob || 0) - probabilidadeImplicita(odd);
+function escapeHtml(texto) {
+  return String(texto ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }
 
-function corValor(v) {
-  if (v >= 8) return "#22c55e";
-  if (v >= 3) return "#f59e0b";
+function corProbabilidade(v) {
+  v = Number(v) || 0;
+
+  if (v >= 65) {
+    return "#22c55e";
+  }
+
+  if (v >= 45) {
+    return "#f59e0b";
+  }
+
   return "#ef4444";
 }
 
-/* ================================
+function corClassificacao(valor) {
+  if (valor === "VALOR FORTE") {
+    return "#22c55e";
+  }
+
+  if (valor === "VALOR") {
+    return "#4ade80";
+  }
+
+  if (valor === "NEUTRO") {
+    return "#f59e0b";
+  }
+
+  if (valor === "EVITAR") {
+    return "#ef4444";
+  }
+
+  return "#8fa5bf";
+}
+
+/* =========================================================
    ANÁLISE AO VIVO
-================================ */
+========================================================= */
 
 function metrics() {
-  const minute = Math.max(1, n("minute"));
+  const minute =
+    Math.max(
+      1,
+      n("minute")
+    );
 
   const totalGoals =
-    n("homeGoals") + n("awayGoals");
+    n("homeGoals") +
+    n("awayGoals");
 
   const shots =
-    n("homeShots") + n("awayShots");
+    n("homeShots") +
+    n("awayShots");
 
   const sot =
-    n("homeSot") + n("awaySot");
+    n("homeSot") +
+    n("awaySot");
 
   const corners =
-    n("homeCorners") + n("awayCorners");
+    n("homeCorners") +
+    n("awayCorners");
 
   const pace =
-    clamp((shots / minute) * 160);
+    clamp(
+      (shots / minute) * 160
+    );
 
   const targetRate =
-    shots ? (sot / shots) * 100 : 0;
+    shots > 0
+      ? (sot / shots) * 100
+      : 0;
 
   const goalPressure =
     clamp(
       pace * 0.42 +
       targetRate * 0.42 +
-      Math.min(sot * 4, 25)
+      Math.min(
+        sot * 4,
+        25
+      )
     );
 
   const over25 =
     clamp(
       totalGoals * 24 +
       goalPressure * 0.62 +
-      (minute > 65 ? 8 : 0)
+      (
+        minute > 65
+          ? 8
+          : 0
+      )
     );
 
   const btts =
     clamp(
-      (n("homeSot") > 0 ? 24 : 0) +
-      (n("awaySot") > 0 ? 24 : 0) +
+      (
+        n("homeSot") > 0
+          ? 24
+          : 0
+      ) +
+      (
+        n("awaySot") > 0
+          ? 24
+          : 0
+      ) +
       goalPressure * 0.48 +
-      (totalGoals >= 2 ? 8 : 0)
+      (
+        totalGoals >= 2
+          ? 8
+          : 0
+      )
     );
 
   const projectedCorners =
@@ -126,16 +228,34 @@ function metrics() {
 
   const cornerIndex =
     clamp(
-      (projectedCorners / 10) * 75
+      (
+        projectedCorners / 10
+      ) * 75
     );
 
   const homeStrength =
     clamp(
       50 +
-      (n("homeSot") - n("awaySot")) * 7 +
-      (n("homeShots") - n("awayShots")) * 2 +
-      (n("homeCorners") - n("awayCorners")) * 1.5 +
-      (n("homeGoals") - n("awayGoals")) * 13
+
+      (
+        n("homeSot") -
+        n("awaySot")
+      ) * 7 +
+
+      (
+        n("homeShots") -
+        n("awayShots")
+      ) * 2 +
+
+      (
+        n("homeCorners") -
+        n("awayCorners")
+      ) * 1.5 +
+
+      (
+        n("homeGoals") -
+        n("awayGoals")
+      ) * 13
     );
 
   return {
@@ -150,50 +270,101 @@ function metrics() {
     projectedCorners,
     cornerIndex,
     homeStrength,
-    awayStrength: 100 - homeStrength
+    awayStrength:
+      100 - homeStrength
   };
 }
 
 function status(score) {
-  if (score >= 72) return ["BOA", "good"];
-  if (score >= 55) return ["AGUARDE", "wait"];
-  return ["EVITAR", "avoid"];
+  if (score >= 72) {
+    return [
+      "BOA",
+      "good"
+    ];
+  }
+
+  if (score >= 55) {
+    return [
+      "AGUARDE",
+      "wait"
+    ];
+  }
+
+  return [
+    "EVITAR",
+    "avoid"
+  ];
 }
 
-function signalCard(name, score, why, odd, key) {
-  const [label, cls] = status(score);
-  const o = Number(odd || 0);
+function signalCard(
+  name,
+  score,
+  why,
+  odd,
+  key
+) {
+  const [
+    label,
+    cls
+  ] = status(score);
+
+  const oddNumber =
+    Number(odd || 0);
 
   return `
     <div class="signal ${cls}">
+
       <div class="top">
+
         <div>
-          <div class="market">${name}</div>
-          <div class="score">${pct(score)}</div>
+
+          <div class="market">
+            ${escapeHtml(name)}
+          </div>
+
+          <div class="score">
+            ${pct(score)}
+          </div>
+
         </div>
 
         <span class="pill ${cls}">
           ${label}
         </span>
+
       </div>
 
-      <div class="why">${why}</div>
+      <div class="why">
+        ${why}
+      </div>
 
       <button
         class="ghost full"
-        ${o <= 1 ? "disabled" : ""}
+
+        ${
+          oddNumber <= 1
+            ? "disabled"
+            : ""
+        }
+
         onclick="addToTicket(
           '${key}',
-          '${name.replaceAll("'", "\\'")}',
-          ${o}
+          '${String(name).replaceAll(
+            "'",
+            "\\'"
+          )}',
+          ${oddNumber}
         )"
       >
+
         ${
-          o > 1
-            ? `Adicionar @ ${o.toFixed(2)}`
+          oddNumber > 1
+            ? `Adicionar @ ${oddNumber.toFixed(2)}`
             : "Odd indisponível"
         }
+
       </button>
+
     </div>
   `;
 }
@@ -202,105 +373,13 @@ function analyze() {
   const m = metrics();
 
   const home =
-    $("homeTeam")?.value.trim() || "Casa";
+    $("homeTeam")
+      ?.value
+      .trim() ||
+    "Casa";
 
   const away =
-    $("awayTeam")?.value.trim() || "Visitante";
-
-  const temStats =
-    m.shots > 0 ||
-    m.sot > 0 ||
-    m.corners > 0;
-
-  if (!temStats) {
-    if ($("analysisText")) {
-      $("analysisText").innerHTML = `
-        <b>
-          ${home}
-          ${n("homeGoals")} x
-          ${n("awayGoals")}
-          ${away}
-        </b>
-
-        <br>
-
-        Minuto: ${n("minute")}'
-
-        <br><br>
-
-        <span class="muted">
-          Aguardando estatísticas detalhadas.
-        </span>
-      `;
-    }
-
-    if ($("signals")) {
-      $("signals").innerHTML = "";
-    }
-
-    renderBuilder();
-    atualizarHorario();
-    return;
-  }
-
-  const sinais = [
-    signalCard(
-      "Mais de 2.5 gols",
-      m.over25,
-      `${m.shots} finalizações, ${m.sot} no alvo e ${m.totalGoals} gols.`,
-      n("oddOver25"),
-      "over25"
-    ),
-
-    signalCard(
-      "Ambas marcam",
-      m.btts,
-      `${home}: ${n("homeSot")} no alvo. ${away}: ${n("awaySot")} no alvo.`,
-      n("oddBtts"),
-      "btts"
-    ),
-
-    signalCard(
-      "Mais de 8.5 escanteios",
-      m.cornerIndex,
-      `${m.corners} escanteios; projeção ${m.projectedCorners.toFixed(1)}.`,
-      n("oddCorners"),
-      "corners"
-    ),
-
-    signalCard(
-      `${home} vence`,
-      m.homeStrength,
-      "Leitura baseada em placar, finalizações, no alvo e escanteios.",
-      n("oddHome"),
-      "home"
-    ),
-
-    signalCard(
-      "Empate",
-      clamp(
-        100 -
-        Math.abs(m.homeStrength - 50) * 2 -
-        Math.abs(n("homeGoals") - n("awayGoals")) * 18
-      ),
-      "Índice de equilíbrio atual da partida.",
-      n("oddDraw"),
-      "draw"
-    ),
-
-    signalCard(
-      `${away} vence`,
-      m.awayStrength,
-      "Leitura baseada em placar e estatísticas.",
-      n("oddAway"),
-      "away"
-    )
-  ];
-
-  if ($("signals")) {
-    $("signals").innerHTML = sinais.join("");
-  }
-
-  if ($("analysisText")) {
-    $("analysisText").innerHTML = `
-      <b>Finalizações
+    $("awayTeam")
+      ?.value
+      .trim() ||
+    "
