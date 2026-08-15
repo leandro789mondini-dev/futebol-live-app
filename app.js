@@ -760,4 +760,4 @@ if ($("modeLabel")) {
 }
 
 renderBuilder();
-analyze();
+analyze(); 
