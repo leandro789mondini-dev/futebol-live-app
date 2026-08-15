@@ -18,9 +18,7 @@ export default async function handler(req, res) {
     const agora = Date.now();
 
     /*
-      Se já consultamos há menos de 30 segundos,
-      devolve o mesmo resultado sem gastar nova
-      chamada na API-Football.
+      Reaproveita a última resposta por 30 segundos.
     */
     if (
       cache.data &&
@@ -34,29 +32,34 @@ export default async function handler(req, res) {
       });
     }
 
-    const hoje =
-      new Date()
-        .toISOString()
-        .split("T")[0];
+    const headers = {
+      "x-apisports-key": apiKey
+    };
 
-    const resposta =
-      await fetch(
-        `https://v3.football.api-sports.io/fixtures?date=${hoje}`,
-        {
-          headers: {
-            "x-apisports-key": apiKey
-          }
-        }
-      );
+    /*
+      ==========================================
+      1. PRIMEIRO TENTA JOGOS REALMENTE AO VIVO
+      ==========================================
+    */
 
-    const dados =
-      await resposta.json();
+    let resposta = await fetch(
+      "https://v3.football.api-sports.io/fixtures?live=all",
+      {
+        headers
+      }
+    );
 
+    let dados = await resposta.json();
+
+    /*
+      Se a API devolver erro, mostramos
+      o erro verdadeiro.
+    */
     if (!resposta.ok) {
       return res
         .status(resposta.status)
         .json({
-          erro: "Erro ao consultar jogos",
+          erro: "Erro ao consultar jogos ao vivo",
           detalhe:
             dados?.errors ||
             dados?.message ||
@@ -64,119 +67,164 @@ export default async function handler(req, res) {
         });
     }
 
-    const partidas =
+    let partidas =
       Array.isArray(dados.response)
         ? dados.response
         : [];
 
-    const liveStatus = [
-      "1H",
-      "HT",
-      "2H",
-      "ET",
-      "BT",
-      "P",
-      "INT",
-      "LIVE"
-    ];
+    let modo = "LIVE";
 
-    const jogosAoVivo =
-      partidas.filter(jogo =>
-        liveStatus.includes(
-          jogo.fixture
-            ?.status
-            ?.short
-        )
+    /*
+      ==========================================
+      2. SE NÃO HOUVER JOGO AO VIVO,
+         BUSCA OS JOGOS DE HOJE
+      ==========================================
+    */
+
+    if (!partidas.length) {
+      const hoje =
+        new Date()
+          .toISOString()
+          .split("T")[0];
+
+      resposta = await fetch(
+        `https://v3.football.api-sports.io/fixtures?date=${hoje}`,
+        {
+          headers
+        }
       );
 
-    const origem =
-      jogosAoVivo.length
-        ? jogosAoVivo
-        : partidas;
+      dados = await resposta.json();
+
+      if (!resposta.ok) {
+        return res
+          .status(resposta.status)
+          .json({
+            erro: "Erro ao consultar jogos de hoje",
+            detalhe:
+              dados?.errors ||
+              dados?.message ||
+              dados
+          });
+      }
+
+      partidas =
+        Array.isArray(dados.response)
+          ? dados.response
+          : [];
+
+      modo = "HOJE";
+    }
+
+    /*
+      ==========================================
+      3. CONVERTE PARA O FORMATO DO NOSSO APP
+      ==========================================
+    */
 
     const jogos =
-      origem
+      partidas
         .map(jogo => ({
           fixtureId:
-            jogo.fixture?.id ||
+            jogo.fixture?.id ??
             null,
 
           league:
-            jogo.league?.name ||
+            jogo.league?.name ??
             "",
 
           country:
-            jogo.league?.country ||
+            jogo.league?.country ??
             "",
 
           homeTeam:
-            jogo.teams
-              ?.home
-              ?.name ||
+            jogo.teams?.home?.name ??
             "Casa",
 
           awayTeam:
-            jogo.teams
-              ?.away
-              ?.name ||
+            jogo.teams?.away?.name ??
             "Visitante",
 
           homeLogo:
-            jogo.teams
-              ?.home
-              ?.logo ||
+            jogo.teams?.home?.logo ??
             "",
 
           awayLogo:
-            jogo.teams
-              ?.away
-              ?.logo ||
+            jogo.teams?.away?.logo ??
             "",
 
           minute:
             jogo.fixture
               ?.status
-              ?.elapsed ||
+              ?.elapsed ??
             0,
 
           status:
             jogo.fixture
               ?.status
-              ?.short ||
+              ?.short ??
+            "",
+
+          statusLong:
+            jogo.fixture
+              ?.status
+              ?.long ??
             "",
 
           homeGoals:
-            jogo.goals
-              ?.home ??
+            jogo.goals?.home ??
             0,
 
           awayGoals:
-            jogo.goals
-              ?.away ??
+            jogo.goals?.away ??
             0,
 
           timestamp:
             jogo.fixture
-              ?.timestamp ||
-            0
+              ?.timestamp ??
+            0,
+
+          kickoff:
+            jogo.fixture
+              ?.date ??
+            ""
         }))
-        .sort(
-          (a, b) =>
-            Number(b.timestamp) -
-            Number(a.timestamp)
+        .filter(
+          jogo =>
+            jogo.fixtureId !== null
         );
 
-    const respostaFinal = {
-      modo:
-        jogosAoVivo.length
-          ? "LIVE"
-          : "HOJE",
+    /*
+      Se estiver em LIVE, ordena pelo minuto.
+      Se estiver em HOJE, ordena pelo horário.
+    */
 
+    if (modo === "LIVE") {
+      jogos.sort(
+        (a, b) =>
+          Number(b.minute || 0) -
+          Number(a.minute || 0)
+      );
+    } else {
+      jogos.sort(
+        (a, b) =>
+          Number(a.timestamp || 0) -
+          Number(b.timestamp || 0)
+      );
+    }
+
+    const respostaFinal = {
+      modo,
       quantidade:
         jogos.length,
-
       jogos
     };
+
+    /*
+      ==========================================
+      4. SALVA NO CACHE
+      ==========================================
+    */
 
     cache = {
       timestamp: agora,
