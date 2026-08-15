@@ -1,10 +1,3 @@
-let cache = {
-  timestamp: 0,
-  data: null
-};
-
-const CACHE_MS = 30 * 1000;
-
 export default async function handler(req, res) {
   try {
     const apiKey = process.env.API_FOOTBALL_KEY;
@@ -15,118 +8,45 @@ export default async function handler(req, res) {
       });
     }
 
-    const agora = Date.now();
-
-    /*
-      Só reutiliza o cache se ele tiver jogos.
-      Assim não ficamos presos num cache vazio.
-    */
-    if (
-      cache.data &&
-      Array.isArray(cache.data.jogos) &&
-      cache.data.jogos.length > 0 &&
-      agora - cache.timestamp < CACHE_MS
-    ) {
-      res.setHeader("X-Cache", "HIT");
-
-      res.setHeader(
-        "Cache-Control",
-        "private, max-age=0, must-revalidate"
-      );
-
-      return res.status(200).json({
-        ...cache.data,
-        cache: true
-      });
-    }
-
     const headers = {
       "x-apisports-key": apiKey
     };
 
-    /*
-      =====================================
-      1. TENTA JOGOS AO VIVO
-      =====================================
-    */
+    function lerLimites(response) {
+      return {
+        limiteDia:
+          response.headers.get(
+            "x-ratelimit-requests-limit"
+          ),
 
-    let resposta = await fetch(
-      "https://v3.football.api-sports.io/fixtures?live=all&timezone=America%2FSao_Paulo",
-      {
-        headers
-      }
-    );
+        restanteDia:
+          response.headers.get(
+            "x-ratelimit-requests-remaining"
+          ),
 
-    let dados = await resposta.json();
+        limiteMinuto:
+          response.headers.get(
+            "x-ratelimit-limit"
+          ),
 
-    /*
-      Se a consulta LIVE funcionar,
-      pegamos os jogos.
-    */
-
-    let partidasLive = [];
-
-    if (resposta.ok) {
-      partidasLive =
-        Array.isArray(dados.response)
-          ? dados.response
-          : [];
+        restanteMinuto:
+          response.headers.get(
+            "x-ratelimit-remaining"
+          )
+      };
     }
 
     /*
-      =====================================
-      2. SE EXISTIREM JOGOS AO VIVO
-      =====================================
-    */
-
-    if (partidasLive.length > 0) {
-      const jogos =
-        partidasLive
-          .map(formatarJogo)
-          .filter(Boolean)
-          .sort(
-            (a, b) =>
-              Number(b.minute || 0) -
-              Number(a.minute || 0)
-          );
-
-      const respostaFinal = {
-        modo: "LIVE",
-        quantidade: jogos.length,
-        jogos
-      };
-
-      cache = {
-        timestamp: agora,
-        data: respostaFinal
-      };
-
-      res.setHeader("X-Cache", "MISS");
-
-      res.setHeader(
-        "Cache-Control",
-        "private, max-age=0, must-revalidate"
-      );
-
-      return res.status(200).json({
-        ...respostaFinal,
-        cache: false
-      });
-    }
-
-    /*
-      =====================================
-      3. DATA ATUAL NO HORÁRIO DE BRASÍLIA
-      =====================================
+      =========================================
+      DATA NO HORÁRIO DE BRASÍLIA
+      =========================================
     */
 
     const hojeBrasil =
       new Intl.DateTimeFormat(
         "en-CA",
         {
-          timeZone:
-            "America/Sao_Paulo",
-
+          timeZone: "America/Sao_Paulo",
           year: "numeric",
           month: "2-digit",
           day: "2-digit"
@@ -134,180 +54,170 @@ export default async function handler(req, res) {
       ).format(new Date());
 
     /*
-      =====================================
-      4. BUSCA JOGOS DE HOJE
-      =====================================
+      =========================================
+      TESTE 1 — JOGOS AO VIVO
+      =========================================
     */
 
-    resposta = await fetch(
-      `https://v3.football.api-sports.io/fixtures?date=${hojeBrasil}&timezone=America%2FSao_Paulo`,
-      {
-        headers
-      }
-    );
+    const liveUrl =
+      "https://v3.football.api-sports.io/fixtures?live=all&timezone=America%2FSao_Paulo";
 
-    dados = await resposta.json();
+    const liveResponse =
+      await fetch(
+        liveUrl,
+        { headers }
+      );
 
-    if (!resposta.ok) {
-      return res
-        .status(resposta.status)
-        .json({
-          erro:
-            "Erro ao consultar jogos de hoje",
+    let liveDados;
 
-          detalhe:
-            dados?.errors ||
-            dados?.message ||
-            dados
-        });
-    }
-
-    const partidasHoje =
-      Array.isArray(dados.response)
-        ? dados.response
-        : [];
-
-    /*
-      =====================================
-      5. FORMATA OS JOGOS
-      =====================================
-    */
-
-    const jogosHoje =
-      partidasHoje
-        .map(formatarJogo)
-        .filter(Boolean)
-        .sort(
-          (a, b) =>
-            Number(a.timestamp || 0) -
-            Number(b.timestamp || 0)
-        );
-
-    const respostaFinal = {
-      modo: "HOJE",
-      data: hojeBrasil,
-      quantidade:
-        jogosHoje.length,
-      jogos:
-        jogosHoje
-    };
-
-    /*
-      Só salva cache quando temos jogos.
-    */
-    if (jogosHoje.length > 0) {
-      cache = {
-        timestamp: agora,
-        data: respostaFinal
+    try {
+      liveDados =
+        await liveResponse.json();
+    } catch (erro) {
+      liveDados = {
+        erroJson:
+          erro.message
       };
     }
 
-    res.setHeader(
-      "X-Cache",
-      "MISS"
-    );
+    const liveLimites =
+      lerLimites(
+        liveResponse
+      );
 
-    res.setHeader(
-      "Cache-Control",
-      "private, max-age=0, must-revalidate"
-    );
+    /*
+      =========================================
+      TESTE 2 — JOGOS DO DIA
+      =========================================
+    */
+
+    const hojeUrl =
+      `https://v3.football.api-sports.io/fixtures?date=${hojeBrasil}&timezone=America%2FSao_Paulo`;
+
+    const hojeResponse =
+      await fetch(
+        hojeUrl,
+        { headers }
+      );
+
+    let hojeDados;
+
+    try {
+      hojeDados =
+        await hojeResponse.json();
+    } catch (erro) {
+      hojeDados = {
+        erroJson:
+          erro.message
+      };
+    }
+
+    const hojeLimites =
+      lerLimites(
+        hojeResponse
+      );
+
+    /*
+      =========================================
+      RESUMO DO DIAGNÓSTICO
+      =========================================
+    */
 
     return res.status(200).json({
-      ...respostaFinal,
-      cache: false
+      diagnostico: true,
+
+      dataBrasil:
+        hojeBrasil,
+
+      live: {
+        statusHttp:
+          liveResponse.status,
+
+        ok:
+          liveResponse.ok,
+
+        results:
+          liveDados?.results ??
+          null,
+
+        errors:
+          liveDados?.errors ??
+          null,
+
+        message:
+          liveDados?.message ??
+          null,
+
+        responseQuantidade:
+          Array.isArray(
+            liveDados?.response
+          )
+            ? liveDados.response.length
+            : null,
+
+        parametros:
+          liveDados?.parameters ??
+          null,
+
+        paging:
+          liveDados?.paging ??
+          null,
+
+        limites:
+          liveLimites
+      },
+
+      hoje: {
+        statusHttp:
+          hojeResponse.status,
+
+        ok:
+          hojeResponse.ok,
+
+        results:
+          hojeDados?.results ??
+          null,
+
+        errors:
+          hojeDados?.errors ??
+          null,
+
+        message:
+          hojeDados?.message ??
+          null,
+
+        responseQuantidade:
+          Array.isArray(
+            hojeDados?.response
+          )
+            ? hojeDados.response.length
+            : null,
+
+        parametros:
+          hojeDados?.parameters ??
+          null,
+
+        paging:
+          hojeDados?.paging ??
+          null,
+
+        limites:
+          hojeLimites
+      }
     });
 
   } catch (erro) {
     console.error(
-      "Erro jogos:",
+      "Erro diagnóstico:",
       erro
     );
 
     return res.status(500).json({
       erro:
-        "Erro ao carregar jogos",
+        "Erro ao executar diagnóstico",
 
       detalhe:
         erro.message
     });
   }
-}
-
-/*
-  =====================================
-  FORMATA UMA PARTIDA
-  =====================================
-*/
-
-function formatarJogo(jogo) {
-  const fixtureId =
-    jogo?.fixture?.id;
-
-  if (!fixtureId) {
-    return null;
-  }
-
-  return {
-    fixtureId,
-
-    league:
-      jogo.league?.name ||
-      "",
-
-    country:
-      jogo.league?.country ||
-      "",
-
-    homeTeam:
-      jogo.teams?.home?.name ||
-      "Casa",
-
-    awayTeam:
-      jogo.teams?.away?.name ||
-      "Visitante",
-
-    homeLogo:
-      jogo.teams?.home?.logo ||
-      "",
-
-    awayLogo:
-      jogo.teams?.away?.logo ||
-      "",
-
-    minute:
-      jogo.fixture
-        ?.status
-        ?.elapsed ??
-      0,
-
-    status:
-      jogo.fixture
-        ?.status
-        ?.short ||
-      "",
-
-    statusLong:
-      jogo.fixture
-        ?.status
-        ?.long ||
-      "",
-
-    homeGoals:
-      jogo.goals?.home ??
-      0,
-
-    awayGoals:
-      jogo.goals?.away ??
-      0,
-
-    timestamp:
-      jogo.fixture
-        ?.timestamp ||
-      0,
-
-    kickoff:
-      jogo.fixture
-        ?.date ||
-      ""
-  };
 }
