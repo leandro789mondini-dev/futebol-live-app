@@ -39,6 +39,16 @@ const MIN_INTERVAL_LIVE = 5 * 60 * 1000;
 const MIN_INTERVAL_PRELIVE = 10 * 60 * 1000;
 const STATS_CACHE_MS = 60 * 1000;
 
+const LS_LIVE = "futebol_live_jogos";
+const LS_PRELIVE = "futebol_live_prelive";
+const LS_ANALISES = "futebol_live_analises";
+const LS_STATS = "futebol_live_stats";
+
+const LOCAL_LIVE_MAX_AGE = 30 * 60 * 1000;
+const LOCAL_PRELIVE_MAX_AGE = 6 * 60 * 60 * 1000;
+const LOCAL_ANALISE_MAX_AGE = 6 * 60 * 60 * 1000;
+const LOCAL_STATS_MAX_AGE = 15 * 60 * 1000;
+
 /* =====================================================
    UTILIDADES
 ===================================================== */
@@ -99,6 +109,77 @@ function mensagemErroHttp(status) {
   return `Erro HTTP ${status}`;
 }
 
+function salvarLocal(chave, data) {
+  try {
+    localStorage.setItem(
+      chave,
+      JSON.stringify({
+        timestamp: Date.now(),
+        data
+      })
+    );
+  } catch (_) {}
+}
+
+function lerLocal(chave, maxAge) {
+  try {
+    const bruto = localStorage.getItem(chave);
+
+    if (!bruto) return null;
+
+    const salvo = JSON.parse(bruto);
+
+    if (
+      !salvo ||
+      !salvo.timestamp ||
+      !salvo.data
+    ) {
+      return null;
+    }
+
+    if (
+      Date.now() - salvo.timestamp >
+      maxAge
+    ) {
+      return null;
+    }
+
+    return salvo.data;
+
+  } catch (_) {
+    return null;
+  }
+}
+
+function salvarMapaLocal(chave, mapa) {
+  try {
+    const obj = {};
+
+    for (const [k, v] of mapa.entries()) {
+      obj[k] = v;
+    }
+
+    salvarLocal(chave, obj);
+
+  } catch (_) {}
+}
+
+function carregarMapaLocal(
+  chave,
+  maxAge,
+  mapa
+) {
+  const dados =
+    lerLocal(chave, maxAge);
+
+  if (!dados) return;
+
+  Object.entries(dados)
+    .forEach(([k, v]) => {
+      mapa.set(k, v);
+    });
+}
+
 /* =====================================================
    STATUS DA API
 ===================================================== */
@@ -106,7 +187,8 @@ function mensagemErroHttp(status) {
 function criarStatusApi() {
   if ($("apiStatusBox")) return;
 
-  const box = document.createElement("div");
+  const box =
+    document.createElement("div");
 
   box.id = "apiStatusBox";
 
@@ -153,10 +235,6 @@ function criarStatusApi() {
     ></div>
   `;
 
-  const main =
-    document.querySelector("main") ||
-    document.body;
-
   const switcher =
     $("modeSwitcher");
 
@@ -166,7 +244,7 @@ function criarStatusApi() {
       switcher.nextSibling
     );
   } else {
-    main.prepend(box);
+    document.body.prepend(box);
   }
 }
 
@@ -178,9 +256,14 @@ function atualizarStatusApi(
 ) {
   criarStatusApi();
 
-  const titulo = $("apiStatusText");
-  const desc = $("apiStatusDetail");
-  const quota = $("apiQuotaText");
+  const titulo =
+    $("apiStatusText");
+
+  const desc =
+    $("apiStatusDetail");
+
+  const quota =
+    $("apiQuotaText");
 
   if (!titulo || !desc) return;
 
@@ -191,28 +274,41 @@ function atualizarStatusApi(
         : "🟢 API disponível";
 
     titulo.style.color =
-      cache ? "#f59e0b" : "#34d399";
+      cache
+        ? "#f59e0b"
+        : "#34d399";
+  }
+
+  if (tipo === "local") {
+    titulo.textContent =
+      "🟡 Usando dados salvos";
+
+    titulo.style.color =
+      "#f59e0b";
   }
 
   if (tipo === "limite") {
     titulo.textContent =
       "🔴 Limite diário atingido";
 
-    titulo.style.color = "#fb7185";
+    titulo.style.color =
+      "#fb7185";
   }
 
   if (tipo === "erro") {
     titulo.textContent =
       "🔴 Erro na API";
 
-    titulo.style.color = "#fb7185";
+    titulo.style.color =
+      "#fb7185";
   }
 
   if (tipo === "carregando") {
     titulo.textContent =
       "🔵 Consultando API...";
 
-    titulo.style.color = "#60a5fa";
+    titulo.style.color =
+      "#60a5fa";
   }
 
   desc.textContent =
@@ -246,7 +342,10 @@ function atualizarStatusApi(
 
 function metrics() {
   const minute =
-    Math.max(1, n("minute"));
+    Math.max(
+      1,
+      n("minute")
+    );
 
   const totalGoals =
     n("homeGoals") +
@@ -278,22 +377,41 @@ function metrics() {
     clamp(
       pace * 0.42 +
       targetRate * 0.42 +
-      Math.min(sot * 4, 25)
+      Math.min(
+        sot * 4,
+        25
+      )
     );
 
   const over25 =
     clamp(
       totalGoals * 24 +
       pressure * 0.62 +
-      (minute > 65 ? 8 : 0)
+      (
+        minute > 65
+          ? 8
+          : 0
+      )
     );
 
   const btts =
     clamp(
-      (n("homeSot") > 0 ? 24 : 0) +
-      (n("awaySot") > 0 ? 24 : 0) +
+      (
+        n("homeSot") > 0
+          ? 24
+          : 0
+      ) +
+      (
+        n("awaySot") > 0
+          ? 24
+          : 0
+      ) +
       pressure * 0.48 +
-      (totalGoals >= 2 ? 8 : 0)
+      (
+        totalGoals >= 2
+          ? 8
+          : 0
+      )
     );
 
   const projectedCorners =
@@ -301,16 +419,30 @@ function metrics() {
 
   const cornerIndex =
     clamp(
-      (projectedCorners / 10) * 75
+      (
+        projectedCorners / 10
+      ) * 75
     );
 
   const homeStrength =
     clamp(
       50 +
-      (n("homeSot") - n("awaySot")) * 7 +
-      (n("homeShots") - n("awayShots")) * 2 +
-      (n("homeCorners") - n("awayCorners")) * 1.5 +
-      (n("homeGoals") - n("awayGoals")) * 13
+      (
+        n("homeSot") -
+        n("awaySot")
+      ) * 7 +
+      (
+        n("homeShots") -
+        n("awayShots")
+      ) * 2 +
+      (
+        n("homeCorners") -
+        n("awayCorners")
+      ) * 1.5 +
+      (
+        n("homeGoals") -
+        n("awayGoals")
+      ) * 13
     );
 
   return {
@@ -325,13 +457,20 @@ function metrics() {
     projectedCorners,
     cornerIndex,
     homeStrength,
-    awayStrength: 100 - homeStrength
+    awayStrength:
+      100 - homeStrength
   };
 }
 
 function status(score) {
-  if (score >= 72) return ["BOA", "good"];
-  if (score >= 55) return ["AGUARDE", "wait"];
+  if (score >= 72) {
+    return ["BOA", "good"];
+  }
+
+  if (score >= 55) {
+    return ["AGUARDE", "wait"];
+  }
+
   return ["EVITAR", "avoid"];
 }
 
@@ -393,11 +532,15 @@ function analyze() {
   const m = metrics();
 
   const home =
-    $("homeTeam")?.value.trim() ||
+    $("homeTeam")
+      ?.value
+      .trim() ||
     "Casa";
 
   const away =
-    $("awayTeam")?.value.trim() ||
+    $("awayTeam")
+      ?.value
+      .trim() ||
     "Visitante";
 
   const temStats =
@@ -418,7 +561,8 @@ function analyze() {
 
         <br>
 
-        Minuto: ${n("minute")}'
+        Minuto:
+        ${n("minute")}'
 
         <br><br>
 
@@ -434,6 +578,7 @@ function analyze() {
 
     renderBuilder();
     atualizarHorario();
+
     return;
   }
 
@@ -441,7 +586,12 @@ function analyze() {
     signalCard(
       "Mais de 2.5 gols",
       m.over25,
-      `${m.shots} finalizações, ${m.sot} no alvo e ${m.totalGoals} gols até ${m.minute}'.`,
+
+      `${m.shots} finalizações,
+       ${m.sot} no alvo e
+       ${m.totalGoals} gols até
+       ${m.minute}'.`,
+
       n("oddOver25"),
       "over25"
     ),
@@ -449,7 +599,12 @@ function analyze() {
     signalCard(
       "Ambas marcam",
       m.btts,
-      `${escapeHtml(home)}: ${n("homeSot")} no alvo. ${escapeHtml(away)}: ${n("awaySot")} no alvo.`,
+
+      `${escapeHtml(home)}:
+       ${n("homeSot")} no alvo.
+       ${escapeHtml(away)}:
+       ${n("awaySot")} no alvo.`,
+
       n("oddBtts"),
       "btts"
     ),
@@ -457,7 +612,11 @@ function analyze() {
     signalCard(
       "Mais de 8.5 escanteios",
       m.cornerIndex,
-      `${m.corners} escanteios. Projeção aproximada: ${m.projectedCorners.toFixed(1)}.`,
+
+      `${m.corners} escanteios.
+       Projeção aproximada:
+       ${m.projectedCorners.toFixed(1)}.`,
+
       n("oddCorners"),
       "corners"
     ),
@@ -465,22 +624,29 @@ function analyze() {
     signalCard(
       `${home} vence`,
       m.homeStrength,
+
       "Índice baseado em placar e estatísticas ao vivo.",
+
       n("oddHome"),
       "home"
     ),
 
     signalCard(
       "Empate",
+
       clamp(
         100 -
-        Math.abs(m.homeStrength - 50) * 2 -
+        Math.abs(
+          m.homeStrength - 50
+        ) * 2 -
         Math.abs(
           n("homeGoals") -
           n("awayGoals")
         ) * 18
       ),
+
       "Índice baseado no equilíbrio da partida.",
+
       n("oddDraw"),
       "draw"
     ),
@@ -488,7 +654,9 @@ function analyze() {
     signalCard(
       `${away} vence`,
       m.awayStrength,
+
       "Índice baseado em placar e estatísticas ao vivo.",
+
       n("oddAway"),
       "away"
     )
@@ -534,7 +702,9 @@ function analyze() {
 }
 
 function atualizarHorario() {
-  if (!$("lastUpdate")) return;
+  if (!$("lastUpdate")) {
+    return;
+  }
 
   $("lastUpdate").textContent =
     "Atualizado " +
@@ -552,61 +722,103 @@ function atualizarHorario() {
 ===================================================== */
 
 function renderBuilder() {
-  if (!$("builderMarkets")) return;
+  if (!$("builderMarkets")) {
+    return;
+  }
 
   const home =
-    $("homeTeam")?.value.trim() ||
+    $("homeTeam")
+      ?.value
+      .trim() ||
     "Casa";
 
   const away =
-    $("awayTeam")?.value.trim() ||
+    $("awayTeam")
+      ?.value
+      .trim() ||
     "Visitante";
 
   const mercados = [
-    ["home", `${home} vence`, n("oddHome")],
-    ["draw", "Empate", n("oddDraw")],
-    ["away", `${away} vence`, n("oddAway")],
-    ["over25", "Mais de 2.5 gols", n("oddOver25")],
-    ["btts", "Ambas marcam", n("oddBtts")],
-    ["corners", "Mais de 8.5 escanteios", n("oddCorners")]
+    [
+      "home",
+      `${home} vence`,
+      n("oddHome")
+    ],
+
+    [
+      "draw",
+      "Empate",
+      n("oddDraw")
+    ],
+
+    [
+      "away",
+      `${away} vence`,
+      n("oddAway")
+    ],
+
+    [
+      "over25",
+      "Mais de 2.5 gols",
+      n("oddOver25")
+    ],
+
+    [
+      "btts",
+      "Ambas marcam",
+      n("oddBtts")
+    ],
+
+    [
+      "corners",
+      "Mais de 8.5 escanteios",
+      n("oddCorners")
+    ]
   ];
 
   $("builderMarkets").innerHTML =
-    mercados.map(
-      ([key, name, odd]) => `
-        <div class="market-row">
-          <span>
-            ${escapeHtml(name)}
-            <br>
+    mercados
+      .map(
+        ([key, name, odd]) => `
+          <div class="market-row">
+            <span>
+              ${escapeHtml(name)}
 
-            <small class="muted">
-              ${
-                odd > 1
-                  ? `@ ${odd.toFixed(2)}`
-                  : "Odd indisponível"
-              }
-            </small>
-          </span>
+              <br>
 
-          <button
-            ${odd <= 1 ? "disabled" : ""}
-            onclick="addToTicket(
-              '${key}',
-              '${String(name).replaceAll("'", "\\'")}',
-              ${odd}
-            )"
-          >
-            +
-          </button>
-        </div>
-      `
-    )
-    .join("");
+              <small class="muted">
+                ${
+                  odd > 1
+                    ? `@ ${odd.toFixed(2)}`
+                    : "Odd indisponível"
+                }
+              </small>
+            </span>
+
+            <button
+              ${odd <= 1 ? "disabled" : ""}
+              onclick="addToTicket(
+                '${key}',
+                '${String(name).replaceAll("'", "\\'")}',
+                ${odd}
+              )"
+            >
+              +
+            </button>
+          </div>
+        `
+      )
+      .join("");
 }
 
 window.addToTicket =
-function(key, name, odd) {
-  odd = Number(odd);
+function(
+  key,
+  name,
+  odd
+) {
+  odd =
+    Number(odd);
 
   if (
     !Number.isFinite(odd) ||
@@ -617,7 +829,8 @@ function(key, name, odd) {
 
   if (
     !ticket.find(
-      item => item.key === key
+      item =>
+        item.key === key
     )
   ) {
     ticket.push({
@@ -633,38 +846,52 @@ function(key, name, odd) {
 function renderTicket() {
   const total =
     ticket.reduce(
-      (acc, item) =>
+      (
+        acc,
+        item
+      ) =>
         acc * item.odd,
+
       1
     );
 
   if ($("ticketCount")) {
-    $("ticketCount").textContent =
+    $("ticketCount")
+      .textContent =
       ticket.length;
   }
 
   if ($("ticketOdd")) {
-    $("ticketOdd").textContent =
+    $("ticketOdd")
+      .textContent =
       total.toFixed(2);
   }
 
   if ($("ticketReturn")) {
-    $("ticketReturn").textContent =
-      brl(10 * total);
+    $("ticketReturn")
+      .textContent =
+      brl(
+        10 * total
+      );
   }
 }
 
 /* =====================================================
-   MENU AO VIVO / PRÉ-LIVE
+   MENU
 ===================================================== */
 
 function criarMenuModos() {
-  if ($("modeSwitcher")) return;
+  if ($("modeSwitcher")) {
+    return;
+  }
 
   const box =
-    document.createElement("div");
+    document.createElement(
+      "div"
+    );
 
-  box.id = "modeSwitcher";
+  box.id =
+    "modeSwitcher";
 
   box.style.cssText = `
     max-width:1100px;
@@ -718,13 +945,15 @@ function criarMenuModos() {
   $("btnLiveMode")
     ?.addEventListener(
       "click",
-      () => mudarModo("live")
+      () =>
+        mudarModo("live")
     );
 
   $("btnPreLiveMode")
     ?.addEventListener(
       "click",
-      () => mudarModo("prelive")
+      () =>
+        mudarModo("prelive")
     );
 }
 
@@ -733,19 +962,31 @@ function atualizarBotoesModo() {
     modoAtual === "live";
 
   if ($("btnLiveMode")) {
-    $("btnLiveMode").style.background =
-      live ? "#2d8cff" : "#102135";
+    $("btnLiveMode")
+      .style.background =
+      live
+        ? "#2d8cff"
+        : "#102135";
 
-    $("btnLiveMode").style.color =
-      live ? "white" : "#a9bad0";
+    $("btnLiveMode")
+      .style.color =
+      live
+        ? "white"
+        : "#a9bad0";
   }
 
   if ($("btnPreLiveMode")) {
-    $("btnPreLiveMode").style.background =
-      live ? "#102135" : "#2d8cff";
+    $("btnPreLiveMode")
+      .style.background =
+      live
+        ? "#102135"
+        : "#2d8cff";
 
-    $("btnPreLiveMode").style.color =
-      live ? "#a9bad0" : "white";
+    $("btnPreLiveMode")
+      .style.color =
+      live
+        ? "#a9bad0"
+        : "white";
   }
 }
 
@@ -761,19 +1002,23 @@ function mudarModo(modo) {
     $("preLiveBox");
 
   const dadosPartida =
-    $("homeTeam")?.closest("section");
+    $("homeTeam")
+      ?.closest("section");
 
   if (modo === "live") {
     if (liveBox) {
-      liveBox.style.display = "block";
+      liveBox.style.display =
+        "block";
     }
 
     if (preBox) {
-      preBox.style.display = "none";
+      preBox.style.display =
+        "none";
     }
 
     if (dadosPartida) {
-      dadosPartida.style.display = "";
+      dadosPartida.style.display =
+        "";
     }
 
     if ($("modeLabel")) {
@@ -786,7 +1031,8 @@ function mudarModo(modo) {
   }
 
   if (liveBox) {
-    liveBox.style.display = "none";
+    liveBox.style.display =
+      "none";
   }
 
   if (dadosPartida) {
@@ -797,7 +1043,8 @@ function mudarModo(modo) {
   criarPainelPreLive();
 
   if (preBox) {
-    preBox.style.display = "block";
+    preBox.style.display =
+      "block";
   }
 
   if ($("modeLabel")) {
@@ -813,12 +1060,17 @@ function mudarModo(modo) {
 ===================================================== */
 
 function criarPainelJogos() {
-  if ($("liveGamesBox")) return;
+  if ($("liveGamesBox")) {
+    return;
+  }
 
   const box =
-    document.createElement("section");
+    document.createElement(
+      "section"
+    );
 
-  box.id = "liveGamesBox";
+  box.id =
+    "liveGamesBox";
 
   box.style.cssText = `
     margin:20px auto;
@@ -856,29 +1108,38 @@ function criarPainelJogos() {
 
       <span
         id="liveGamesCount"
-        style="color:#9eb0c7;"
+        style="
+          color:#9eb0c7;
+        "
       >
         0 jogos
       </span>
     </div>
 
     <div id="liveGamesList">
-      <div style="color:#9eb0c7;">
+      <div style="
+        color:#9eb0c7;
+      ">
         Aguardando atualização.
       </div>
     </div>
   `;
 
   const referencia =
-    $("homeTeam")?.closest("section");
+    $("homeTeam")
+      ?.closest("section");
 
-  if (referencia?.parentNode) {
+  if (
+    referencia?.parentNode
+  ) {
     referencia.parentNode.insertBefore(
       box,
       referencia
     );
   } else {
-    document.body.appendChild(box);
+    document.body.appendChild(
+      box
+    );
   }
 }
 
@@ -888,10 +1149,13 @@ function renderJogos() {
   const lista =
     $("liveGamesList");
 
-  if (!lista) return;
+  if (!lista) {
+    return;
+  }
 
   if ($("liveGamesCount")) {
-    $("liveGamesCount").textContent =
+    $("liveGamesCount")
+      .textContent =
       `${jogosDisponiveis.length} jogo${
         jogosDisponiveis.length === 1
           ? ""
@@ -899,7 +1163,9 @@ function renderJogos() {
       }`;
   }
 
-  if (!jogosDisponiveis.length) {
+  if (
+    !jogosDisponiveis.length
+  ) {
     lista.innerHTML = `
       <div style="
         color:#9eb0c7;
@@ -917,7 +1183,11 @@ function renderJogos() {
       .map(
         (jogo, index) => `
           <button
-            onclick="selecionarJogo(${index})"
+            onclick="
+              selecionarJogo(
+                ${index}
+              )
+            "
             style="
               width:100%;
               padding:14px;
@@ -986,89 +1256,8 @@ function renderJogos() {
 }
 
 /* =====================================================
-   ESTATÍSTICAS AO VIVO
+   ESTATÍSTICAS
 ===================================================== */
-
-async function carregarEstatisticas(
-  fixtureId
-) {
-  if (!fixtureId) return;
-
-  const chave =
-    String(fixtureId);
-
-  const cache =
-    statsCache.get(chave);
-
-  if (
-    cache &&
-    Date.now() - cache.timestamp <
-      STATS_CACHE_MS
-  ) {
-    aplicarEstatisticas(
-      cache.data
-    );
-
-    return;
-  }
-
-  try {
-    const resposta =
-      await fetch(
-        `/api/estatisticas?id=${encodeURIComponent(fixtureId)}`,
-        {
-          cache: "no-store"
-        }
-      );
-
-    let dados = null;
-
-    try {
-      dados =
-        await resposta.json();
-    } catch (_) {}
-
-    if (!resposta.ok) {
-      if (
-        resposta.status === 429
-      ) {
-        atualizarStatusApi(
-          "limite",
-          "Estatísticas pausadas porque a cota diária foi atingida."
-        );
-
-        return;
-      }
-
-      throw new Error(
-        dados?.erro ||
-        mensagemErroHttp(
-          resposta.status
-        )
-      );
-    }
-
-    statsCache.set(
-      chave,
-      {
-        timestamp:
-          Date.now(),
-
-        data: dados
-      }
-    );
-
-    aplicarEstatisticas(
-      dados
-    );
-
-  } catch (erro) {
-    console.error(
-      "Erro estatísticas:",
-      erro
-    );
-  }
-}
 
 function aplicarEstatisticas(
   dados
@@ -1106,19 +1295,172 @@ function aplicarEstatisticas(
   analyze();
 }
 
+async function carregarEstatisticas(
+  fixtureId
+) {
+  if (!fixtureId) {
+    return;
+  }
+
+  const chave =
+    String(fixtureId);
+
+  const memoria =
+    statsCache.get(chave);
+
+  if (
+    memoria &&
+    Date.now() -
+      memoria.timestamp <
+      STATS_CACHE_MS
+  ) {
+    aplicarEstatisticas(
+      memoria.data
+    );
+
+    return;
+  }
+
+  const localStats =
+    lerLocal(
+      LS_STATS,
+      LOCAL_STATS_MAX_AGE
+    );
+
+  if (
+    localStats &&
+    localStats[chave]
+  ) {
+    statsCache.set(
+      chave,
+      {
+        timestamp:
+          Date.now(),
+
+        data:
+          localStats[chave]
+      }
+    );
+  }
+
+  try {
+    const resposta =
+      await fetch(
+        `/api/estatisticas?id=${encodeURIComponent(fixtureId)}`,
+        {
+          cache:
+            "no-store"
+        }
+      );
+
+    let dados = null;
+
+    try {
+      dados =
+        await resposta.json();
+    } catch (_) {}
+
+    if (!resposta.ok) {
+      if (
+        resposta.status === 429
+      ) {
+        const fallback =
+          statsCache.get(chave);
+
+        if (fallback?.data) {
+          aplicarEstatisticas(
+            fallback.data
+          );
+
+          atualizarStatusApi(
+            "local",
+            "Estatísticas exibidas a partir dos dados salvos."
+          );
+        } else {
+          atualizarStatusApi(
+            "limite",
+            "Estatísticas pausadas porque a cota diária terminou."
+          );
+        }
+
+        return;
+      }
+
+      throw new Error(
+        dados?.erro ||
+        mensagemErroHttp(
+          resposta.status
+        )
+      );
+    }
+
+    statsCache.set(
+      chave,
+      {
+        timestamp:
+          Date.now(),
+
+        data:
+          dados
+      }
+    );
+
+    const todosStats =
+      lerLocal(
+        LS_STATS,
+        LOCAL_STATS_MAX_AGE
+      ) || {};
+
+    todosStats[chave] =
+      dados;
+
+    salvarLocal(
+      LS_STATS,
+      todosStats
+    );
+
+    aplicarEstatisticas(
+      dados
+    );
+
+  } catch (erro) {
+    console.error(
+      "Erro estatísticas:",
+      erro
+    );
+
+    const fallback =
+      statsCache.get(chave);
+
+    if (fallback?.data) {
+      aplicarEstatisticas(
+        fallback.data
+      );
+
+      atualizarStatusApi(
+        "local",
+        "Falha na API. Usando estatísticas salvas."
+      );
+    }
+  }
+}
+
 window.selecionarJogo =
 async function(index) {
   const jogo =
     jogosDisponiveis[index];
 
-  if (!jogo) return;
+  if (!jogo) {
+    return;
+  }
 
   jogoSelecionado =
     jogo;
 
   if ($("homeTeam")) {
     $("homeTeam").value =
-      jogo.homeTeam || "Casa";
+      jogo.homeTeam ||
+      "Casa";
   }
 
   if ($("awayTeam")) {
@@ -1142,12 +1484,35 @@ async function(index) {
     jogo.awayGoals ?? 0
   );
 
-  setInput("homeShots", 0);
-  setInput("awayShots", 0);
-  setInput("homeSot", 0);
-  setInput("awaySot", 0);
-  setInput("homeCorners", 0);
-  setInput("awayCorners", 0);
+  setInput(
+    "homeShots",
+    0
+  );
+
+  setInput(
+    "awayShots",
+    0
+  );
+
+  setInput(
+    "homeSot",
+    0
+  );
+
+  setInput(
+    "awaySot",
+    0
+  );
+
+  setInput(
+    "homeCorners",
+    0
+  );
+
+  setInput(
+    "awayCorners",
+    0
+  );
 
   renderJogos();
   analyze();
@@ -1167,12 +1532,15 @@ async function atualizarJogos(
   const agora =
     Date.now();
 
-  if (buscandoJogos) return;
+  if (buscandoJogos) {
+    return;
+  }
 
   if (
     !forcar &&
     jogosDisponiveis.length &&
-    agora - ultimaAtualizacaoJogos <
+    agora -
+      ultimaAtualizacaoJogos <
       MIN_INTERVAL_LIVE
   ) {
     renderJogos();
@@ -1187,7 +1555,8 @@ async function atualizarJogos(
     return;
   }
 
-  buscandoJogos = true;
+  buscandoJogos =
+    true;
 
   atualizarStatusApi(
     "carregando",
@@ -1207,7 +1576,8 @@ async function atualizarJogos(
       await fetch(
         "/api/jogos",
         {
-          cache: "no-store"
+          cache:
+            "no-store"
         }
       );
 
@@ -1222,30 +1592,36 @@ async function atualizarJogos(
       if (
         resposta.status === 429
       ) {
+        const salvo =
+          lerLocal(
+            LS_LIVE,
+            LOCAL_LIVE_MAX_AGE
+          );
+
+        if (
+          salvo &&
+          Array.isArray(
+            salvo.jogos
+          ) &&
+          salvo.jogos.length
+        ) {
+          jogosDisponiveis =
+            salvo.jogos;
+
+          renderJogos();
+
+          atualizarStatusApi(
+            "local",
+            "Cota atingida. Exibindo os últimos jogos salvos."
+          );
+
+          return;
+        }
+
         atualizarStatusApi(
           "limite",
-          "A cota da API-Football terminou por hoje.",
-          dados?.api || null
+          "A cota diária terminou e ainda não há jogos salvos."
         );
-
-        if ($("liveGamesList")) {
-          $("liveGamesList").innerHTML = `
-            <div style="
-              color:#fca5a5;
-              line-height:1.6;
-            ">
-              <b>
-                Limite diário atingido.
-              </b>
-
-              <br>
-
-              O aplicativo está preservando
-              as requisições e não fará
-              novas consultas automaticamente.
-            </div>
-          `;
-        }
 
         return;
       }
@@ -1269,13 +1645,26 @@ async function atualizarJogos(
     ultimaAtualizacaoJogos =
       Date.now();
 
+    salvarLocal(
+      LS_LIVE,
+      {
+        modo:
+          dados?.modo || "",
+
+        jogos:
+          jogosDisponiveis
+      }
+    );
+
     atualizarStatusApi(
       "ok",
       dados?.modo === "LIVE"
         ? "Partidas ao vivo carregadas."
         : "Jogos do dia carregados.",
       dados?.api || null,
-      Boolean(dados?.cache)
+      Boolean(
+        dados?.cache
+      )
     );
 
     renderJogos();
@@ -1286,14 +1675,40 @@ async function atualizarJogos(
       erro
     );
 
-    atualizarStatusApi(
-      "erro",
-      erro.message ||
-      "Erro ao carregar partidas."
-    );
+    const salvo =
+      lerLocal(
+        LS_LIVE,
+        LOCAL_LIVE_MAX_AGE
+      );
+
+    if (
+      salvo &&
+      Array.isArray(
+        salvo.jogos
+      ) &&
+      salvo.jogos.length
+    ) {
+      jogosDisponiveis =
+        salvo.jogos;
+
+      renderJogos();
+
+      atualizarStatusApi(
+        "local",
+        "Falha na API. Exibindo os últimos jogos salvos."
+      );
+
+    } else {
+      atualizarStatusApi(
+        "erro",
+        erro.message ||
+        "Erro ao carregar partidas."
+      );
+    }
 
   } finally {
-    buscandoJogos = false;
+    buscandoJogos =
+      false;
 
     if ($("refreshBtn")) {
       $("refreshBtn").textContent =
@@ -1310,7 +1725,9 @@ async function atualizarJogos(
 ===================================================== */
 
 function criarPainelPreLive() {
-  if ($("preLiveBox")) return;
+  if ($("preLiveBox")) {
+    return;
+  }
 
   const box =
     document.createElement(
@@ -1357,7 +1774,9 @@ function criarPainelPreLive() {
 
       <span
         id="preLiveCount"
-        style="color:#9eb0c7;"
+        style="
+          color:#9eb0c7;
+        "
       >
         0 jogos
       </span>
@@ -1375,13 +1794,17 @@ function criarPainelPreLive() {
   const live =
     $("liveGamesBox");
 
-  if (live?.parentNode) {
+  if (
+    live?.parentNode
+  ) {
     live.parentNode.insertBefore(
       box,
       live.nextSibling
     );
   } else {
-    document.body.appendChild(box);
+    document.body.appendChild(
+      box
+    );
   }
 }
 
@@ -1391,10 +1814,13 @@ function renderPreLive() {
   const lista =
     $("preLiveList");
 
-  if (!lista) return;
+  if (!lista) {
+    return;
+  }
 
   if ($("preLiveCount")) {
-    $("preLiveCount").textContent =
+    $("preLiveCount")
+      .textContent =
       `${jogosPreLive.length} jogo${
         jogosPreLive.length === 1
           ? ""
@@ -1402,7 +1828,9 @@ function renderPreLive() {
       }`;
   }
 
-  if (!jogosPreLive.length) {
+  if (
+    !jogosPreLive.length
+  ) {
     lista.innerHTML = `
       <div style="
         color:#9eb0c7;
@@ -1497,22 +1925,21 @@ function renderPreLive() {
       .join("");
 }
 
-/* =====================================================
-   CARREGAR PRÉ-LIVE
-===================================================== */
-
 async function carregarPreLive(
   forcar = false
 ) {
   const agora =
     Date.now();
 
-  if (buscandoPreLive) return;
+  if (buscandoPreLive) {
+    return;
+  }
 
   if (
     !forcar &&
     jogosPreLive.length &&
-    agora - ultimaAtualizacaoPreLive <
+    agora -
+      ultimaAtualizacaoPreLive <
       MIN_INTERVAL_PRELIVE
   ) {
     renderPreLive();
@@ -1536,21 +1963,12 @@ async function carregarPreLive(
   );
 
   try {
-    if ($("preLiveList")) {
-      $("preLiveList").innerHTML = `
-        <div style="
-          color:#9eb0c7;
-        ">
-          Buscando jogos pré-live...
-        </div>
-      `;
-    }
-
     const resposta =
       await fetch(
         "/api/prelive",
         {
-          cache: "no-store"
+          cache:
+            "no-store"
         }
       );
 
@@ -1565,9 +1983,35 @@ async function carregarPreLive(
       if (
         resposta.status === 429
       ) {
+        const salvo =
+          lerLocal(
+            LS_PRELIVE,
+            LOCAL_PRELIVE_MAX_AGE
+          );
+
+        if (
+          salvo &&
+          Array.isArray(
+            salvo.jogos
+          ) &&
+          salvo.jogos.length
+        ) {
+          jogosPreLive =
+            salvo.jogos;
+
+          renderPreLive();
+
+          atualizarStatusApi(
+            "local",
+            "Cota atingida. Exibindo PRÉ-LIVE salvo."
+          );
+
+          return;
+        }
+
         atualizarStatusApi(
           "limite",
-          "PRÉ-LIVE pausado porque a cota diária terminou."
+          "PRÉ-LIVE indisponível porque a cota diária terminou."
         );
 
         throw new Error(
@@ -1594,11 +2038,21 @@ async function carregarPreLive(
     ultimaAtualizacaoPreLive =
       Date.now();
 
+    salvarLocal(
+      LS_PRELIVE,
+      {
+        jogos:
+          jogosPreLive
+      }
+    );
+
     atualizarStatusApi(
       "ok",
       "Jogos pré-live carregados.",
       dados?.api || null,
-      Boolean(dados?.cache)
+      Boolean(
+        dados?.cache
+      )
     );
 
     renderPreLive();
@@ -1609,11 +2063,33 @@ async function carregarPreLive(
       erro
     );
 
-    if ($("preLiveList")) {
+    const salvo =
+      lerLocal(
+        LS_PRELIVE,
+        LOCAL_PRELIVE_MAX_AGE
+      );
+
+    if (
+      salvo &&
+      Array.isArray(
+        salvo.jogos
+      ) &&
+      salvo.jogos.length
+    ) {
+      jogosPreLive =
+        salvo.jogos;
+
+      renderPreLive();
+
+      atualizarStatusApi(
+        "local",
+        "Falha na API. Exibindo PRÉ-LIVE salvo."
+      );
+
+    } else if ($("preLiveList")) {
       $("preLiveList").innerHTML = `
         <div style="
           color:#fca5a5;
-          line-height:1.5;
         ">
           ${escapeHtml(
             erro.message
@@ -1646,51 +2122,94 @@ async function buscarAnaliseCompleta(
     );
   }
 
-  const resposta =
-    await fetch(
-      `/api/analise-prelive?id=${encodeURIComponent(fixtureId)}`,
-      {
-        cache: "no-store"
-      }
-    );
+  const analisesLocais =
+    lerLocal(
+      LS_ANALISES,
+      LOCAL_ANALISE_MAX_AGE
+    ) || {};
 
-  let dados = null;
-
-  try {
-    dados =
-      await resposta.json();
-  } catch (_) {}
-
-  if (!resposta.ok) {
-    if (
-      resposta.status === 429
-    ) {
-      atualizarStatusApi(
-        "limite",
-        "Análises pausadas porque a cota diária terminou."
-      );
-
-      throw new Error(
-        "Limite diário da API atingido."
-      );
-    }
-
-    throw new Error(
-      typeof dados?.detalhe === "string"
-        ? dados.detalhe
-        : dados?.erro ||
-          mensagemErroHttp(
-            resposta.status
-          )
+  if (
+    analisesLocais[chave]
+  ) {
+    analiseCache.set(
+      chave,
+      analisesLocais[chave]
     );
   }
 
-  analiseCache.set(
-    chave,
-    dados
-  );
+  try {
+    const resposta =
+      await fetch(
+        `/api/analise-prelive?id=${encodeURIComponent(fixtureId)}`,
+        {
+          cache:
+            "no-store"
+        }
+      );
 
-  return dados;
+    let dados = null;
+
+    try {
+      dados =
+        await resposta.json();
+    } catch (_) {}
+
+    if (!resposta.ok) {
+      if (
+        resposta.status === 429 &&
+        analiseCache.has(chave)
+      ) {
+        atualizarStatusApi(
+          "local",
+          "Cota atingida. Exibindo análise salva."
+        );
+
+        return analiseCache.get(
+          chave
+        );
+      }
+
+      throw new Error(
+        resposta.status === 429
+          ? "Limite diário da API atingido."
+          : dados?.erro ||
+            mensagemErroHttp(
+              resposta.status
+            )
+      );
+    }
+
+    analiseCache.set(
+      chave,
+      dados
+    );
+
+    analisesLocais[chave] =
+      dados;
+
+    salvarLocal(
+      LS_ANALISES,
+      analisesLocais
+    );
+
+    return dados;
+
+  } catch (erro) {
+    if (
+      analiseCache.has(chave)
+    ) {
+      atualizarStatusApi(
+        "local",
+        "Falha na API. Exibindo análise salva."
+      );
+
+      return analiseCache.get(
+        chave
+      );
+    }
+
+    throw erro;
+  }
 }
 
 window.analisarPreLive =
@@ -1698,14 +2217,18 @@ async function(index) {
   const jogo =
     jogosPreLive[index];
 
-  if (!jogo) return;
+  if (!jogo) {
+    return;
+  }
 
   const container =
     $(
       `analise-${jogo.fixtureId}`
     );
 
-  if (!container) return;
+  if (!container) {
+    return;
+  }
 
   container.innerHTML = `
     <div style="
@@ -1813,7 +2336,6 @@ async function(index) {
       <div style="
         color:#fca5a5;
         padding:12px 0;
-        line-height:1.5;
       ">
         <b>
           Não foi possível analisar.
@@ -1869,16 +2391,19 @@ function cardMercado(
     "VALOR FORTE"
   ) {
     cor = "#22c55e";
+
   } else if (
     mercado.classificacao ===
     "VALOR"
   ) {
     cor = "#4ade80";
+
   } else if (
     mercado.classificacao ===
     "NEUTRO"
   ) {
     cor = "#f59e0b";
+
   } else if (
     mercado.classificacao ===
     "EVITAR"
@@ -1963,13 +2488,9 @@ $("refreshBtn")
   ?.addEventListener(
     "click",
     () => {
-      /*
-        Forçar atualização ainda respeita
-        o cache do backend.
-      */
-
       if (
-        modoAtual === "prelive"
+        modoAtual ===
+        "prelive"
       ) {
         carregarPreLive(true);
       } else {
@@ -2001,16 +2522,58 @@ renderBuilder();
 renderTicket();
 analyze();
 
-atualizarStatusApi(
-  "ok",
-  "Aplicativo iniciado. Aguardando dados.",
-  null,
-  true
+carregarMapaLocal(
+  LS_ANALISES,
+  LOCAL_ANALISE_MAX_AGE,
+  analiseCache
 );
 
 /*
-  Faz somente UMA consulta automática
-  na abertura do aplicativo.
+  Tenta carregar dados salvos imediatamente,
+  antes mesmo de consultar a API.
+*/
+
+const liveSalvo =
+  lerLocal(
+    LS_LIVE,
+    LOCAL_LIVE_MAX_AGE
+  );
+
+if (
+  liveSalvo &&
+  Array.isArray(
+    liveSalvo.jogos
+  )
+) {
+  jogosDisponiveis =
+    liveSalvo.jogos;
+
+  renderJogos();
+
+  atualizarStatusApi(
+    "local",
+    "Últimos jogos salvos carregados."
+  );
+}
+
+const preLiveSalvo =
+  lerLocal(
+    LS_PRELIVE,
+    LOCAL_PRELIVE_MAX_AGE
+  );
+
+if (
+  preLiveSalvo &&
+  Array.isArray(
+    preLiveSalvo.jogos
+  )
+) {
+  jogosPreLive =
+    preLiveSalvo.jogos;
+}
+
+/*
+  Uma única tentativa automática ao abrir.
 */
 
 window.addEventListener(
